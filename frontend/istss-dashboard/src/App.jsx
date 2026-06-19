@@ -25,6 +25,27 @@ const I={
 };
 
 const chartColors=["#7c3aed","#2dd4bf","#f43f5e","#f59e0b","#3b82f6","#10b981","#ec4899"];
+
+/* ─── Stable Components (outside App to prevent remount on state change) ─── */
+const FormField=({label,field,type="text",opts,form,setForm})=>(
+  <div className="form-field">
+    <label>{label}</label>
+    {opts
+      ?<select value={form[field]||""} onChange={e=>setForm(f=>({...f,[field]:e.target.value}))}>
+        <option value="">Select…</option>{opts.map(o=><option key={o} value={o}>{o}</option>)}
+      </select>
+      :<input type={type} value={form[field]||""} onChange={e=>setForm(f=>({...f,[field]:type==="number"?parseFloat(e.target.value)||0:e.target.value}))} placeholder={label}/>
+    }
+  </div>
+);
+
+const KPI=({label,value,color,emoji})=>(
+  <div className="kpi-card" style={{"--kpi-color":color,"--kpi-gradient":`linear-gradient(135deg,${color}40,${color}10)`,"--kpi-icon-bg":`${color}18`}}>
+    <p className="kpi-label">{label}</p>
+    <p className="kpi-value">{value}</p>
+    <div className="kpi-icon">{emoji}</div>
+  </div>
+);
 const navItems=[
   {id:"dashboard",label:"Dashboard",icon:"dashboard"},
   {id:"chowks",label:"Chowks",icon:"chowks"},
@@ -139,26 +160,7 @@ const App=()=>{
     try{const r=await api(path,{method,body:body?JSON.stringify(body):undefined});flash(r.message||"Done");setForm({});setEditId(null);load();}catch(e){flash("Error: "+e.message);}
   };
 
-  /* ─── Reusable Components ─── */
-  const FormField=({label,field,type="text",opts})=>(
-    <div className="form-field">
-      <label>{label}</label>
-      {opts
-        ?<select value={form[field]||""} onChange={e=>setForm({...form,[field]:e.target.value})}>
-          <option value="">Select…</option>{opts.map(o=><option key={o} value={o}>{o}</option>)}
-        </select>
-        :<input type={type} value={form[field]||""} onChange={e=>setForm({...form,[field]:type==="number"?parseFloat(e.target.value)||0:e.target.value})} placeholder={label}/>
-      }
-    </div>
-  );
-
-  const KPI=({label,value,color,emoji})=>(
-    <div className="kpi-card" style={{"--kpi-color":color,"--kpi-gradient":`linear-gradient(135deg,${color}40,${color}10)`,"--kpi-icon-bg":`${color}18`}}>
-      <p className="kpi-label">{label}</p>
-      <p className="kpi-value">{value}</p>
-      <div className="kpi-icon">{emoji}</div>
-    </div>
-  );
+  /* ─── Components use form/setForm passed as props ─── */
 
   const tickerText="ISTSS Platform — Datamorphosis Technologies Pvt. Ltd.  ◈  Smart Traffic Signal System — Real-time Monitoring  ◈  Powered by AI & Edge Computing  ◈  ";
 
@@ -462,10 +464,10 @@ const App=()=>{
   <div className="form-card">
     <h3>{editId?"Edit Chowk":"Add New Chowk"}</h3>
     <div className="form-grid form-grid-4" style={{alignItems:"end"}}>
-      <FormField label="Name" field="name"/>
-      <FormField label="Location" field="location"/>
-      <FormField label="Lanes" field="lanes" type="number"/>
-      <FormField label="Cameras" field="cameras" type="number"/>
+      <FormField form={form} setForm={setForm} label="Name" field="name"/>
+      <FormField form={form} setForm={setForm} label="Location" field="location"/>
+      <FormField form={form} setForm={setForm} label="Lanes" field="lanes" type="number"/>
+      <FormField form={form} setForm={setForm} label="Cameras" field="cameras" type="number"/>
     </div>
     <div className="form-actions">
       <button onClick={()=>{if(!form.name)return flash("Name required");editId?crud("PUT",`/api/v1/chowks/${editId}`,form):crud("POST","/api/v1/chowks",form);}} className="btn btn-success">{editId?"Update":"Add Chowk"}</button>
@@ -497,10 +499,10 @@ const App=()=>{
   <div className="form-card">
     <h3>{editId?"Edit Device":"Register New Device"}</h3>
     <div className="form-grid form-grid-4" style={{alignItems:"end"}}>
-      <FormField label="Device ID" field="device_id"/>
-      <FormField label="Name" field="name"/>
-      <FormField label="Type" field="type" opts={["Raspberry Pi","Jetson Nano","Edge Server"]}/>
-      <FormField label="Status" field="status" opts={["online","offline","maintenance"]}/>
+      <FormField form={form} setForm={setForm} label="Device ID" field="device_id"/>
+      <FormField form={form} setForm={setForm} label="Name" field="name"/>
+      <FormField form={form} setForm={setForm} label="Type" field="type" opts={["Raspberry Pi","Jetson Nano","Edge Server"]}/>
+      <FormField form={form} setForm={setForm} label="Status" field="status" opts={["online","offline","maintenance"]}/>
     </div>
     <div className="form-actions">
       <button onClick={()=>{if(!form.device_id||!form.name)return flash("ID & Name required");editId?crud("PUT",`/api/v1/devices/${editId}`,form):crud("POST","/api/v1/devices",form);}} className="btn btn-success">{editId?"Update":"Register"}</button>
@@ -553,11 +555,11 @@ const App=()=>{
   <div className="form-card">
     <h3>Record New Violation</h3>
     <div className="form-grid form-grid-5" style={{alignItems:"end"}}>
-      <FormField label="Type" field="violation_type" opts={["Red Light Jump","No Helmet","Triple Seat","Zebra Crossing","Wrong Lane","No Parking","Seat Belt","Mobile Phone","Signal Tampering"]}/>
-      <FormField label="Vehicle" field="vehicle_type" opts={["Two-Wheeler","Car/SUV","Auto","Bus","Truck","Emergency"]}/>
-      <FormField label="Number Plate" field="number_plate"/>
-      <FormField label="Device ID" field="device_id"/>
-      <FormField label="Confidence" field="confidence" type="number"/>
+      <FormField form={form} setForm={setForm} label="Type" field="violation_type" opts={["Red Light Jump","No Helmet","Triple Seat","Zebra Crossing","Wrong Lane","No Parking","Seat Belt","Mobile Phone","Signal Tampering"]}/>
+      <FormField form={form} setForm={setForm} label="Vehicle" field="vehicle_type" opts={["Two-Wheeler","Car/SUV","Auto","Bus","Truck","Emergency"]}/>
+      <FormField form={form} setForm={setForm} label="Number Plate" field="number_plate"/>
+      <FormField form={form} setForm={setForm} label="Device ID" field="device_id"/>
+      <FormField form={form} setForm={setForm} label="Confidence" field="confidence" type="number"/>
     </div>
     <div className="form-actions">
       <button onClick={()=>{if(!form.violation_type)return flash("Type required");crud("POST","/api/v1/violations",form);}} className="btn btn-success">Record Violation</button>
@@ -600,14 +602,14 @@ const App=()=>{
   <div className="form-card">
     <h3>{editId?"Edit Officer":"Add New Officer"}</h3>
     <div className="form-grid form-grid-4">
-      <FormField label="Officer Name" field="officer_name"/>
-      <FormField label="Badge Number" field="badge_number"/>
-      <FormField label="Mobile" field="mobile_number"/>
-      <FormField label="WhatsApp" field="whatsapp_number"/>
-      <FormField label="Designation" field="designation"/>
-      <FormField label="Police Station" field="police_station"/>
-      <FormField label="City" field="city"/>
-      <FormField label="Status" field="status" opts={["active","inactive"]}/>
+      <FormField form={form} setForm={setForm} label="Officer Name" field="officer_name"/>
+      <FormField form={form} setForm={setForm} label="Badge Number" field="badge_number"/>
+      <FormField form={form} setForm={setForm} label="Mobile" field="mobile_number"/>
+      <FormField form={form} setForm={setForm} label="WhatsApp" field="whatsapp_number"/>
+      <FormField form={form} setForm={setForm} label="Designation" field="designation"/>
+      <FormField form={form} setForm={setForm} label="Police Station" field="police_station"/>
+      <FormField form={form} setForm={setForm} label="City" field="city"/>
+      <FormField form={form} setForm={setForm} label="Status" field="status" opts={["active","inactive"]}/>
     </div>
     <div className="form-actions">
       <button onClick={()=>{if(!form.officer_name||!form.mobile_number)return flash("Name & Mobile required");editId?crud("PUT",`/api/v1/officers/${editId}`,form):crud("POST","/api/v1/officers",form);}} className="btn btn-success">{editId?"Update":"Add Officer"}</button>
@@ -641,9 +643,9 @@ const App=()=>{
   <div className="form-card">
     <h3>Assign Officer to Chowk Shift</h3>
     <div className="form-grid form-grid-3" style={{alignItems:"end"}}>
-      <FormField label="Chowk" field="chowk_id" opts={chowks.map(c=>c.id+":"+c.name)}/>
-      <FormField label="Morning Officer" field="morning_officer_id" opts={officers.filter(o=>o.status==="active").map(o=>o.id+":"+o.officer_name)}/>
-      <FormField label="Afternoon Officer" field="afternoon_officer_id" opts={officers.filter(o=>o.status==="active").map(o=>o.id+":"+o.officer_name)}/>
+      <FormField form={form} setForm={setForm} label="Chowk" field="chowk_id" opts={chowks.map(c=>c.id+":"+c.name)}/>
+      <FormField form={form} setForm={setForm} label="Morning Officer" field="morning_officer_id" opts={officers.filter(o=>o.status==="active").map(o=>o.id+":"+o.officer_name)}/>
+      <FormField form={form} setForm={setForm} label="Afternoon Officer" field="afternoon_officer_id" opts={officers.filter(o=>o.status==="active").map(o=>o.id+":"+o.officer_name)}/>
     </div>
     <div className="form-actions">
       <button onClick={()=>{if(!form.chowk_id)return flash("Select chowk");const f={chowk_id:form.chowk_id?.split(":")[0],morning_officer_id:form.morning_officer_id?.split(":")[0]||"",afternoon_officer_id:form.afternoon_officer_id?.split(":")[0]||""};editId?crud("PUT",`/api/v1/assignments/${editId}`,f):crud("POST","/api/v1/assignments",f);}} className="btn btn-success">{editId?"Update":"Assign"}</button>
@@ -671,10 +673,10 @@ const App=()=>{
   <div className="form-card">
     <h3>Upload Evidence</h3>
     <div className="form-grid form-grid-4" style={{alignItems:"end"}}>
-      <FormField label="Violation ID" field="violation_id"/>
-      <FormField label="File URL" field="file_url"/>
-      <FormField label="File Type" field="file_type" opts={["image","video","document"]}/>
-      <FormField label="Notes" field="notes"/>
+      <FormField form={form} setForm={setForm} label="Violation ID" field="violation_id"/>
+      <FormField form={form} setForm={setForm} label="File URL" field="file_url"/>
+      <FormField form={form} setForm={setForm} label="File Type" field="file_type" opts={["image","video","document"]}/>
+      <FormField form={form} setForm={setForm} label="Notes" field="notes"/>
     </div>
     <div className="form-actions">
       <button onClick={()=>{if(!form.violation_id)return flash("Violation ID required");crud("POST","/api/v1/evidence",form);}} className="btn btn-success">Upload</button>
@@ -702,11 +704,11 @@ const App=()=>{
   <div className="form-card">
     <h3>Record Signal Analytics</h3>
     <div className="form-grid form-grid-6" style={{alignItems:"end"}}>
-      <FormField label="Chowk ID" field="chowk_id" opts={chowks.map(c=>c.id)}/>
-      <FormField label="Total Vehicles" field="total_vehicles" type="number"/>
-      <FormField label="Avg Wait (sec)" field="average_waiting_time" type="number"/>
-      <FormField label="Total Wait (sec)" field="total_waiting_time" type="number"/>
-      <FormField label="Time Saved (sec)" field="total_time_saved" type="number"/>
+      <FormField form={form} setForm={setForm} label="Chowk ID" field="chowk_id" opts={chowks.map(c=>c.id)}/>
+      <FormField form={form} setForm={setForm} label="Total Vehicles" field="total_vehicles" type="number"/>
+      <FormField form={form} setForm={setForm} label="Avg Wait (sec)" field="average_waiting_time" type="number"/>
+      <FormField form={form} setForm={setForm} label="Total Wait (sec)" field="total_waiting_time" type="number"/>
+      <FormField form={form} setForm={setForm} label="Time Saved (sec)" field="total_time_saved" type="number"/>
       <div className="form-actions"><button onClick={()=>{if(!form.chowk_id)return flash("Select chowk");crud("POST","/api/v1/analytics/signal",form);}} className="btn btn-success">Record</button></div>
     </div>
   </div>
@@ -750,11 +752,11 @@ const App=()=>{
   <div className="form-card">
     <h3>Record CO₂ Emission Data</h3>
     <div className="form-grid form-grid-5" style={{alignItems:"end"}}>
-      <FormField label="Chowk ID" field="chowk_id" opts={chowks.map(c=>c.id)}/>
-      <FormField label="Total Vehicles" field="total_vehicles" type="number"/>
-      <FormField label="CO₂ Generated (kg)" field="estimated_co2_generated" type="number"/>
-      <FormField label="CO₂ Saved (kg)" field="estimated_co2_saved" type="number"/>
-      <FormField label="Fuel Saved (L)" field="fuel_saved" type="number"/>
+      <FormField form={form} setForm={setForm} label="Chowk ID" field="chowk_id" opts={chowks.map(c=>c.id)}/>
+      <FormField form={form} setForm={setForm} label="Total Vehicles" field="total_vehicles" type="number"/>
+      <FormField form={form} setForm={setForm} label="CO₂ Generated (kg)" field="estimated_co2_generated" type="number"/>
+      <FormField form={form} setForm={setForm} label="CO₂ Saved (kg)" field="estimated_co2_saved" type="number"/>
+      <FormField form={form} setForm={setForm} label="Fuel Saved (L)" field="fuel_saved" type="number"/>
     </div>
     <div className="form-actions">
       <button onClick={()=>{if(!form.chowk_id)return flash("Select chowk");crud("POST","/api/v1/analytics/co2",form);}} className="btn btn-success">Record</button>
@@ -787,9 +789,9 @@ const App=()=>{
   <div className="form-card">
     <h3>Create Notification</h3>
     <div className="form-grid form-grid-3" style={{alignItems:"end"}}>
-      <FormField label="Message" field="message"/>
-      <FormField label="Priority" field="priority" opts={["low","medium","high","critical"]}/>
-      <FormField label="Type" field="type" opts={["info","warning","alert","device","violation"]}/>
+      <FormField form={form} setForm={setForm} label="Message" field="message"/>
+      <FormField form={form} setForm={setForm} label="Priority" field="priority" opts={["low","medium","high","critical"]}/>
+      <FormField form={form} setForm={setForm} label="Type" field="type" opts={["info","warning","alert","device","violation"]}/>
     </div>
     <div className="form-actions">
       <button onClick={()=>{if(!form.message)return flash("Message required");crud("POST","/api/v1/notifications",form);}} className="btn btn-success">Create</button>

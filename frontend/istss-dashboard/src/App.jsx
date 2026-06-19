@@ -99,15 +99,6 @@ const App=()=>{
   const[mcConfig,setMcConfig]=useState(()=>{try{const s=localStorage.getItem("istss_mc_config");return s?JSON.parse(s):defaultMc;}catch(e){return defaultMc;}});
   const[mcEditing,setMcEditing]=useState(false);
   const[mcForm,setMcForm]=useState(mcConfig);
-  const saveMcConfig=async(cfg)=>{
-    setMcConfig(cfg);setMcForm(cfg);localStorage.setItem("istss_mc_config",JSON.stringify(cfg));setMcEditing(false);
-    if(token){try{await api("/api/v1/settings/mc_authority",{method:"PUT",body:JSON.stringify({value:cfg})});}catch(e){console.error("Save MC to API failed:",e);}}
-    flash("Authority details saved");
-  };
-  const loadMcFromApi=useCallback(async()=>{
-    if(!token)return;
-    try{const r=await api("/api/v1/settings/mc_authority");if(r.value){setMcConfig(r.value);setMcForm(r.value);localStorage.setItem("istss_mc_config",JSON.stringify(r.value));}}catch(e){console.log("MC config not in DB yet, using local");}
-  },[token,api]);
   const mcHasData=mcConfig.mc_name||mcConfig.officials.some(o=>o.name);
 
   // ─── Image Upload → base64 (resized to save localStorage space) ───
@@ -139,6 +130,17 @@ const App=()=>{
   },[token]);
 
   const flash=(m)=>{setMsg(m);setTimeout(()=>setMsg(""),3000);};
+
+  // ─── MC Authority API persistence (declared after api/flash) ───
+  const saveMcConfig=async(cfg)=>{
+    setMcConfig(cfg);setMcForm(cfg);localStorage.setItem("istss_mc_config",JSON.stringify(cfg));setMcEditing(false);
+    if(token){try{await api("/api/v1/settings/mc_authority",{method:"PUT",body:JSON.stringify({value:cfg})});}catch(e){console.error("Save MC to API failed:",e);}}
+    flash("Authority details saved");
+  };
+  const loadMcFromApi=useCallback(async()=>{
+    if(!token)return;
+    try{const r=await api("/api/v1/settings/mc_authority");if(r.value){setMcConfig(r.value);setMcForm(r.value);localStorage.setItem("istss_mc_config",JSON.stringify(r.value));}}catch(e){console.log("MC config not in DB yet, using local");}
+  },[token,api]);
 
   const handleLogin=async()=>{
     setLoading(true);setErr("");

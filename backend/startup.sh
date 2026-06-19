@@ -1,34 +1,28 @@
 #!/bin/bash
-# ISTSS Backend Startup with Tailscale
-# This script installs Tailscale in userspace mode, connects to the tailnet,
-# then starts the FastAPI server
-
+# ISTSS Backend Startup — gunicorn starts FIRST, Tailscale installs in background
 echo "=== ISTSS API Startup ==="
 
-# Install sshpass for SSH password auth
-apt-get update -qq && apt-get install -y -qq sshpass > /dev/null 2>&1 || echo "sshpass may already be installed"
+# Start gunicorn immediately so Azure health check passes
+gunicorn -w 2 -k uvicorn.workers.UvicornWorker app:app --bind 0.0.0.0:8000 &
+GUNICORN_PID=$!
+echo "Gunicorn started (PID: $GUNICORN_PID)"
 
-# Install Tailscale if not present
-if ! command -v tailscale &> /dev/null; then
-    echo "Installing Tailscale..."
-    curl -fsSL https://tailscale.com/install.sh | sh
-fi
+# Background: install sshpass + Tailscale
+(
+  sleep 5
+  echo "Installing sshpass..."
+  apt-get update -qq && apt-get install -y -qq sshpass > /dev/null 2>&1
+  echo "Installing Tailscale..."
+  curl -fsSL https://tailscale.com/install.sh | sh 2>/dev/null
+  echo "Starting tailscaled..."
+  tailscaled --tun=userspace-networking --state=/tmp/tailscale-state --socket=/tmp/tailscale.sock &
+  sleep 3
+  if [ -n "$TAILSCALE_AUTHKEY" ]; then
+    tailscale --socket=/tmp/tailscale.sock up --authkey="$TAILSCALE_AUTHKEY" --hostname="istss-api-azure" 2>/dev/null
+    echo "Tailscale connected"
+    tailscale --socket=/tmp/tailscale.sock status 2>/dev/null
+  fi
+) &
 
-# Start tailscaled in userspace mode (no TUN needed in App Service)
-echo "Starting tailscaled in userspace mode..."
-tailscaled --tun=userspace-networking --state=/tmp/tailscale-state --socket=/tmp/tailscale.sock &
-sleep 3
-
-# Authenticate with auth key (set as app setting TAILSCALE_AUTHKEY)
-if [ -n "$TAILSCALE_AUTHKEY" ]; then
-    echo "Connecting to Tailscale network..."
-    tailscale --socket=/tmp/tailscale.sock up --authkey="$TAILSCALE_AUTHKEY" --hostname="istss-api-azure"
-    echo "Tailscale connected. Status:"
-    tailscale --socket=/tmp/tailscale.sock status
-else
-    echo "WARNING: TAILSCALE_AUTHKEY not set. Device SSH will not work."
-fi
-
-# Start the FastAPI server
-echo "Starting ISTSS API server..."
-gunicorn -w 2 -k uvicorn.workers.UvicornWorker app:app --bind 0.0.0.0:8000
+# Wait for gunicorn (keep script alive)
+wait $GUNICORN_PID

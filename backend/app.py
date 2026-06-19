@@ -76,6 +76,15 @@ def init_db():
     for sql in sqls:
         try:db_exec(sql)
         except:pass
+    # Add new columns to existing tables (safe if already exists)
+    for col in [
+        "ALTER TABLE istss_devices ADD COLUMN IF NOT EXISTS location VARCHAR(200) DEFAULT ''",
+        "ALTER TABLE istss_devices ADD COLUMN IF NOT EXISTS network VARCHAR(50) DEFAULT ''",
+        "ALTER TABLE istss_devices ADD COLUMN IF NOT EXISTS tailscale_ip VARCHAR(50) DEFAULT ''",
+        "ALTER TABLE istss_devices ADD COLUMN IF NOT EXISTS ssh_user VARCHAR(50) DEFAULT ''",
+    ]:
+        try:db_exec(col)
+        except:pass
 
 @app.on_event("startup")
 async def startup():init_db();print(f"DB Mode: {'PostgreSQL' if USE_PG else 'In-Memory'}")
@@ -123,11 +132,15 @@ class ChowkReq(BaseModel):
     status:str=Field(default="active")
 class DeviceReq(BaseModel):
     device_id:str=Field(...,min_length=3,max_length=30)
-    name:str=Field(...,min_length=2,max_length=100)
+    name:str=Field(default="",max_length=100)
     chowk_id:str=Field(default="",max_length=20)
     city_id:str=Field(default="",max_length=20)
-    type:str=Field(default="Raspberry Pi")
+    type:str=Field(default="AI Edge Server")
     status:str=Field(default="offline")
+    location:str=Field(default="",max_length=200)
+    network:str=Field(default="",max_length=50)
+    tailscale_ip:str=Field(default="",max_length=50)
+    ssh_user:str=Field(default="",max_length=50)
     cpu_percent:float=Field(default=0,ge=0,le=100)
     memory_percent:float=Field(default=0,ge=0,le=100)
     temperature:float=Field(default=0,ge=0,le=120)
@@ -274,12 +287,12 @@ async def list_devices(page:int=Query(1,ge=1),size:int=Query(50),search:str=Quer
 @app.post("/api/v1/devices",status_code=201)
 async def create_device(r:DeviceReq,u:dict=Depends(require_role("super_admin","city_admin"))):
     if USE_PG:
-        try:db_exec("INSERT INTO istss_devices(id,device_id,name,chowk_id,city_id,type,status,cpu_percent,memory_percent,temperature,disk_percent) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",(r.device_id,r.device_id,r.name,r.chowk_id,r.city_id,r.type,r.status,r.cpu_percent,r.memory_percent,r.temperature,r.disk_percent))
+        try:db_exec("INSERT INTO istss_devices(id,device_id,name,chowk_id,city_id,type,status,location,network,tailscale_ip,ssh_user,cpu_percent,memory_percent,temperature,disk_percent) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",(r.device_id,r.device_id,r.name or r.device_id,r.chowk_id,r.city_id,r.type,r.status,r.location,r.network,r.tailscale_ip,r.ssh_user,r.cpu_percent,r.memory_percent,r.temperature,r.disk_percent))
         except:raise HTTPException(400,detail="Device ID already exists")
     log_audit(u["sub"],"create","devices",{"id":r.device_id});return {"message":"Registered","device":{"id":r.device_id}}
 @app.put("/api/v1/devices/{id}")
 async def update_device(id:str,r:DeviceReq,u:dict=Depends(require_role("super_admin","city_admin"))):
-    if USE_PG:db_exec("UPDATE istss_devices SET name=%s,chowk_id=%s,city_id=%s,type=%s,status=%s,cpu_percent=%s,memory_percent=%s,temperature=%s,disk_percent=%s WHERE id=%s",(r.name,r.chowk_id,r.city_id,r.type,r.status,r.cpu_percent,r.memory_percent,r.temperature,r.disk_percent,id))
+    if USE_PG:db_exec("UPDATE istss_devices SET name=%s,chowk_id=%s,city_id=%s,type=%s,status=%s,location=%s,network=%s,tailscale_ip=%s,ssh_user=%s,cpu_percent=%s,memory_percent=%s,temperature=%s,disk_percent=%s WHERE id=%s",(r.name or r.device_id,r.chowk_id,r.city_id,r.type,r.status,r.location,r.network,r.tailscale_ip,r.ssh_user,r.cpu_percent,r.memory_percent,r.temperature,r.disk_percent,id))
     log_audit(u["sub"],"update","devices",{"id":id});return {"message":"Updated"}
 @app.delete("/api/v1/devices/{id}")
 async def delete_device(id:str,u:dict=Depends(require_role("super_admin","city_admin"))):

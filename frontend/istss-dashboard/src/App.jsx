@@ -508,11 +508,13 @@ const App=()=>{
 {page==="devices"&&<div>
   <div className="form-card">
     <h3>{editId?"Edit Device":"Register New Device"}</h3>
-    <div className="form-grid form-grid-5" style={{alignItems:"end"}}>
+    <div className="form-grid form-grid-3" style={{alignItems:"end"}}>
       <FormField form={form} setForm={setForm} label="Device ID" field="device_id"/>
       <FormField form={form} setForm={setForm} label="Linked Chowk" field="chowk_id" opts={chowks.map(c=>c.id+":"+c.name)}/>
       <FormField form={form} setForm={setForm} label="Location" field="location"/>
       <FormField form={form} setForm={setForm} label="Network" field="network" opts={["Tailscale VPN","SIM / Cellular","LAN / Ethernet","Wi-Fi","LoRa"]}/>
+      <FormField form={form} setForm={setForm} label="Tailscale IP" field="tailscale_ip"/>
+      <FormField form={form} setForm={setForm} label="SSH User" field="ssh_user"/>
       <FormField form={form} setForm={setForm} label="Status" field="status" opts={["online","offline","maintenance"]}/>
     </div>
     <div className="form-actions">
@@ -521,17 +523,17 @@ const App=()=>{
   </div>
   <div className="data-table-wrap">
     <table className="data-table">
-      <thead><tr>{["Device ID","Linked Chowk","Location","Network","Status","Created","Actions"].map(h=><th key={h}>{h}</th>)}</tr></thead>
+      <thead><tr>{["Device ID","Chowk","Location","Network","Tailscale IP","Status","Actions"].map(h=><th key={h}>{h}</th>)}</tr></thead>
       <tbody>{devices.length===0?<tr><td colSpan={7} className="data-table-empty">No devices registered. Add one above.</td></tr>:
         devices.map(d=>{const linkedChowk=chowks.find(c=>c.id===d.chowk_id);return <tr key={d.id}>
           <td className="mono bold">{d.device_id}</td>
           <td>{linkedChowk?<span style={{fontWeight:600}}>{linkedChowk.name}</span>:<span style={{color:"var(--text-tertiary)"}}>Not linked</span>}</td>
           <td>{d.location||"—"}</td>
           <td>{d.network?<span className={`badge ${d.network?.includes("Tailscale")?"badge-info":"badge-success"}`} style={{textTransform:"none"}}>{d.network}</span>:"—"}</td>
+          <td className="mono">{d.tailscale_ip||"—"}</td>
           <td><span className={`badge badge-${d.status==="online"?"success":d.status==="offline"?"danger":"warn"}`}>{d.status}</span></td>
-          <td style={{fontSize:11,color:"var(--text-tertiary)"}}>{new Date(d.created_at).toLocaleDateString()}</td>
           <td>
-            <button onClick={()=>{setEditId(d.id);setForm({device_id:d.device_id,status:d.status,location:d.location||"",network:d.network||"",chowk_id:d.chowk_id?(d.chowk_id+":"+(linkedChowk?.name||"")):""});}} className="btn btn-primary btn-sm" style={{marginRight:6}}>Edit</button>
+            <button onClick={()=>{setEditId(d.id);setForm({device_id:d.device_id,status:d.status,location:d.location||"",network:d.network||"",tailscale_ip:d.tailscale_ip||"",ssh_user:d.ssh_user||"",chowk_id:d.chowk_id?(d.chowk_id+":"+(linkedChowk?.name||"")):""});}} className="btn btn-primary btn-sm" style={{marginRight:6}}>Edit</button>
             <button onClick={()=>crud("DELETE",`/api/v1/devices/${d.id}`)} className="btn btn-danger btn-sm">Delete</button>
           </td>
         </tr>;})}

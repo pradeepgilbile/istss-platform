@@ -81,6 +81,25 @@ const App=()=>{
   const saveMcConfig=(cfg)=>{setMcConfig(cfg);setMcForm(cfg);localStorage.setItem("istss_mc_config",JSON.stringify(cfg));setMcEditing(false);flash("Authority details saved");};
   const mcHasData=mcConfig.mc_name||mcConfig.officials.some(o=>o.name);
 
+  // ─── Image Upload → base64 (resized to save localStorage space) ───
+  const handleImageUpload=(file,maxW,maxH)=>new Promise((resolve)=>{
+    const reader=new FileReader();
+    reader.onload=(e)=>{
+      const img=new Image();
+      img.onload=()=>{
+        const canvas=document.createElement("canvas");
+        let w=img.width,h=img.height;
+        if(w>maxW){h=h*(maxW/w);w=maxW;}
+        if(h>maxH){w=w*(maxH/h);h=maxH;}
+        canvas.width=w;canvas.height=h;
+        canvas.getContext("2d").drawImage(img,0,0,w,h);
+        resolve(canvas.toDataURL("image/jpeg",0.85));
+      };
+      img.src=e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
   useEffect(()=>{document.documentElement.setAttribute("data-theme",dark?"dark":"light");},[dark]);
 
   const api=useCallback(async(path,opts={})=>{
@@ -294,8 +313,15 @@ const App=()=>{
           <input value={mcForm.mc_subtitle} onChange={e=>setMcForm({...mcForm,mc_subtitle:e.target.value})} placeholder="e.g. Smart City Initiative — ISTSS Traffic Management"/>
         </div>
         <div className="form-field">
-          <label>MC Logo URL</label>
-          <input value={mcForm.mc_logo_url} onChange={e=>setMcForm({...mcForm,mc_logo_url:e.target.value})} placeholder="https://... or /mc-logo.png"/>
+          <label>Corporation Logo</label>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            {mcForm.mc_logo_url&&<img src={mcForm.mc_logo_url} alt="Logo" style={{width:48,height:48,borderRadius:"50%",objectFit:"cover",border:"2px solid var(--border-primary)"}}/>}
+            <label className="btn btn-ghost btn-sm" style={{cursor:"pointer",marginBottom:0}}>
+              {mcForm.mc_logo_url?"Change Logo":"Upload Logo"}
+              <input type="file" accept="image/*" style={{display:"none"}} onChange={async(e)=>{const f=e.target.files[0];if(!f)return;const b64=await handleImageUpload(f,200,200);setMcForm({...mcForm,mc_logo_url:b64});}}/>
+            </label>
+            {mcForm.mc_logo_url&&<button onClick={()=>setMcForm({...mcForm,mc_logo_url:""})} className="btn btn-danger btn-sm">Remove</button>}
+          </div>
         </div>
       </div>
 
@@ -306,11 +332,21 @@ const App=()=>{
             <span style={{fontSize:11,fontWeight:700,color:"var(--accent-primary)",textTransform:"uppercase",letterSpacing:"0.08em"}}>Official {i+1}</span>
             {mcForm.officials.length>1&&<button onClick={()=>{const o=[...mcForm.officials];o.splice(i,1);setMcForm({...mcForm,officials:o});}} className="btn btn-danger btn-sm">Remove</button>}
           </div>
-          <div className="form-grid form-grid-4">
+          <div className="form-grid form-grid-3">
             <div className="form-field"><label>Role / Title</label><input value={off.role} onChange={e=>{const o=[...mcForm.officials];o[i]={...o[i],role:e.target.value};setMcForm({...mcForm,officials:o});}} placeholder="e.g. Municipal Commissioner"/></div>
             <div className="form-field"><label>Full Name</label><input value={off.name} onChange={e=>{const o=[...mcForm.officials];o[i]={...o[i],name:e.target.value};setMcForm({...mcForm,officials:o});}} placeholder="e.g. Shri. Shekhar Singh, IAS"/></div>
             <div className="form-field"><label>Designation</label><input value={off.designation} onChange={e=>{const o=[...mcForm.officials];o[i]={...o[i],designation:e.target.value};setMcForm({...mcForm,officials:o});}} placeholder="e.g. Commissioner, PCMC"/></div>
-            <div className="form-field"><label>Photo URL</label><input value={off.photo_url} onChange={e=>{const o=[...mcForm.officials];o[i]={...o[i],photo_url:e.target.value};setMcForm({...mcForm,officials:o});}} placeholder="https://... or /photo.jpg"/></div>
+          </div>
+          <div style={{marginTop:10}}>
+            <label style={{display:"block",fontSize:10,fontWeight:700,color:"var(--text-tertiary)",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Photo</label>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              {off.photo_url&&<img src={off.photo_url} alt={off.name||"Official"} style={{width:44,height:44,borderRadius:"50%",objectFit:"cover",border:"2px solid var(--border-primary)"}}/>}
+              <label className="btn btn-ghost btn-sm" style={{cursor:"pointer",marginBottom:0}}>
+                {off.photo_url?"Change Photo":"Upload Photo"}
+                <input type="file" accept="image/*" style={{display:"none"}} onChange={async(e)=>{const f=e.target.files[0];if(!f)return;const b64=await handleImageUpload(f,160,160);const o=[...mcForm.officials];o[i]={...o[i],photo_url:b64};setMcForm({...mcForm,officials:o});}}/>
+              </label>
+              {off.photo_url&&<button onClick={()=>{const o=[...mcForm.officials];o[i]={...o[i],photo_url:""};setMcForm({...mcForm,officials:o});}} className="btn btn-danger btn-sm">Remove</button>}
+            </div>
           </div>
         </div>
       ))}

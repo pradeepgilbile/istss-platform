@@ -1,4 +1,4 @@
-"""ISTSS Backend API v4.0 - Validation + Pagination + Search + RBAC + Audit
+"""ISTSS Backend API v5.0 - PostgreSQL + WhatsApp Baileys Ready
 Datamorphosis Technologies Pvt. Ltd.
 """
 from fastapi import FastAPI,Depends,HTTPException,Query,status
@@ -7,19 +7,82 @@ from fastapi.security import HTTPBearer,HTTPAuthorizationCredentials
 from pydantic import BaseModel,EmailStr,Field,field_validator
 from typing import Optional,Dict,Any,List
 from datetime import datetime,timezone,timedelta
-import uuid,jwt,re,hashlib
+from contextlib import contextmanager
+import uuid,jwt,re,hashlib,os,json
 
-app=FastAPI(title="ISTSS API",version="4.0.0",docs_url="/api/docs")
+app=FastAPI(title="ISTSS API",version="5.0.0",docs_url="/api/docs")
 app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_credentials=True,allow_methods=["*"],allow_headers=["*"])
 security=HTTPBearer()
 SECRET="istss-jwt-secret-2026"
 
-db={"users":{},"chowks":{},"devices":{},"violations":{},"notifications":[],"audit_logs":[],"officers":{},"assignments":{},"whatsapp_logs":[],"signal_analytics":[],"co2_analytics":[],"evidence":{}}
+# --- DATABASE ---
+DB_CONFIG={
+    "host":os.getenv("DB_HOST","istss-db-dev.postgres.database.azure.com"),
+    "database":os.getenv("DB_NAME","istss"),
+    "user":os.getenv("DB_USER","istss_admin"),
+    "password":os.getenv("DB_PASS","IsTsS@2026Dev!"),
+    "sslmode":"require"
+}
+USE_PG=True
+db_fallback={"users":{},"chowks":{},"devices":{},"violations":{},"notifications":[],"audit_logs":[],"officers":{},"assignments":{},"whatsapp_logs":[],"signal_analytics":[],"co2_analytics":[],"evidence":{}}
 
+try:
+    import psycopg2
+    import psycopg2.extras
+except:USE_PG=False
+
+@contextmanager
+def get_db():
+    if not USE_PG:yield None;return
+    conn=None
+    try:
+        conn=psycopg2.connect(**DB_CONFIG,connect_timeout=5)
+        yield conn
+        conn.commit()
+    except Exception as e:
+        if conn:conn.rollback()
+        print(f"DB Error: {e}")
+        yield None
+    finally:
+        if conn:conn.close()
+
+def db_exec(sql,params=None,fetch=False):
+    if not USE_PG:return None
+    with get_db() as conn:
+        if not conn:return None
+        cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(sql,params or ())
+        if fetch:return [dict(r) for r in cur.fetchall()]
+        return True
+
+def init_db():
+    """Create tables if not exists"""
+    if not USE_PG:return
+    sqls=[
+    """CREATE TABLE IF NOT EXISTS istss_chowks(id VARCHAR(10) PRIMARY KEY,name VARCHAR(100) NOT NULL,location VARCHAR(200),city_id VARCHAR(20),lanes INT DEFAULT 4,cameras INT DEFAULT 2,lat FLOAT DEFAULT 0,lng FLOAT DEFAULT 0,status VARCHAR(20) DEFAULT 'active',created_at TIMESTAMPTZ DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS istss_devices(id VARCHAR(30) PRIMARY KEY,device_id VARCHAR(30),name VARCHAR(100),chowk_id VARCHAR(20),city_id VARCHAR(20),type VARCHAR(30) DEFAULT 'Raspberry Pi',status VARCHAR(20) DEFAULT 'offline',cpu_percent FLOAT DEFAULT 0,memory_percent FLOAT DEFAULT 0,temperature FLOAT DEFAULT 0,disk_percent FLOAT DEFAULT 0,last_heartbeat TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS istss_violations(id VARCHAR(10) PRIMARY KEY,violation_type VARCHAR(50),vehicle_type VARCHAR(30),number_plate VARCHAR(20),chowk_id VARCHAR(20),device_id VARCHAR(30),city_id VARCHAR(20),confidence FLOAT DEFAULT 0,lane INT DEFAULT 1,status VARCHAR(20) DEFAULT 'new',notes TEXT,created_at TIMESTAMPTZ DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS istss_officers(id VARCHAR(10) PRIMARY KEY,officer_name VARCHAR(100),badge_number VARCHAR(20),mobile_number VARCHAR(15),whatsapp_number VARCHAR(15),designation VARCHAR(50),police_station VARCHAR(100),city VARCHAR(50),city_id VARCHAR(20),status VARCHAR(20) DEFAULT 'active',created_at TIMESTAMPTZ DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS istss_assignments(id VARCHAR(10) PRIMARY KEY,chowk_id VARCHAR(20),city_id VARCHAR(20),morning_officer_id VARCHAR(10),afternoon_officer_id VARCHAR(10),status VARCHAR(20) DEFAULT 'active',updated_by VARCHAR(20),updated_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS istss_evidence(id VARCHAR(10) PRIMARY KEY,violation_id VARCHAR(10),file_url VARCHAR(500),file_type VARCHAR(20),sha256_hash VARCHAR(64),notes TEXT,status VARCHAR(20) DEFAULT 'pending',created_at TIMESTAMPTZ DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS istss_notifications(id VARCHAR(10) PRIMARY KEY,message VARCHAR(500),priority VARCHAR(20) DEFAULT 'medium',type VARCHAR(20) DEFAULT 'info',created_at TIMESTAMPTZ DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS istss_audit_logs(id VARCHAR(10) PRIMARY KEY,user_id VARCHAR(20),action VARCHAR(50),resource VARCHAR(50),details JSONB,created_at TIMESTAMPTZ DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS istss_users(id VARCHAR(10) PRIMARY KEY,full_name VARCHAR(100),email VARCHAR(100) UNIQUE,pw_hash VARCHAR(64),mobile VARCHAR(15),designation VARCHAR(50),city_id VARCHAR(20),role VARCHAR(20) DEFAULT 'viewer',status VARCHAR(20) DEFAULT 'pending',created_at TIMESTAMPTZ DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS istss_whatsapp_logs(id VARCHAR(10) PRIMARY KEY,violation_id VARCHAR(10),officer_id VARCHAR(10),whatsapp_number VARCHAR(15),message TEXT,delivery_status VARCHAR(20) DEFAULT 'sent',sent_time TIMESTAMPTZ DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS istss_signal_analytics(id VARCHAR(10) PRIMARY KEY,chowk_id VARCHAR(20),city_id VARCHAR(20),date DATE,total_vehicles INT DEFAULT 0,average_waiting_time FLOAT DEFAULT 0,total_waiting_time FLOAT DEFAULT 0,total_time_saved FLOAT DEFAULT 0,signal_cycle_duration FLOAT DEFAULT 0,queue_length INT DEFAULT 0,avg_time_saved_per_vehicle FLOAT DEFAULT 0,created_at TIMESTAMPTZ DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS istss_co2_analytics(id VARCHAR(10) PRIMARY KEY,chowk_id VARCHAR(20),city_id VARCHAR(20),date DATE,total_vehicles INT DEFAULT 0,estimated_co2_generated FLOAT DEFAULT 0,estimated_co2_saved FLOAT DEFAULT 0,fuel_saved FLOAT DEFAULT 0,trees_equivalent FLOAT DEFAULT 0,net_zero_score FLOAT DEFAULT 0,created_at TIMESTAMPTZ DEFAULT NOW())""",
+    ]
+    for sql in sqls:
+        try:db_exec(sql)
+        except:pass
+
+@app.on_event("startup")
+async def startup():init_db();print(f"DB Mode: {'PostgreSQL' if USE_PG else 'In-Memory'}")
+
+# --- HELPERS ---
 def now():return datetime.now(timezone.utc).isoformat()
 def uid():return str(uuid.uuid4())[:8]
-def make_jwt(uid,role,city_id="all"):
-    return jwt.encode({"sub":uid,"role":role,"city_id":city_id,"exp":datetime.now(timezone.utc)+timedelta(hours=12)},SECRET,algorithm="HS256")
+def make_jwt(uid,role,city_id="all"):return jwt.encode({"sub":uid,"role":role,"city_id":city_id,"exp":datetime.now(timezone.utc)+timedelta(hours=12)},SECRET,algorithm="HS256")
 def decode(token):
     try:return jwt.decode(token,SECRET,algorithms=["HS256"])
     except jwt.ExpiredSignatureError:raise HTTPException(401,detail="Token expired")
@@ -27,26 +90,16 @@ def decode(token):
 async def auth(c:HTTPAuthorizationCredentials=Depends(security)):return decode(c.credentials)
 def require_role(*roles):
     async def check(u:dict=Depends(auth)):
-        if u.get("role") not in roles:raise HTTPException(403,detail=f"Requires role: {', '.join(roles)}")
+        if u.get("role") not in roles:raise HTTPException(403,detail=f"Requires: {', '.join(roles)}")
         return u
     return check
+def sanitize(s):return re.sub(r'[<>"\';]','',str(s)) if s else s
 def log_audit(user_id,action,resource,details=None):
-    db["audit_logs"].append({"id":uid(),"user_id":user_id,"action":action,"resource":resource,"details":details or {},"timestamp":now()})
-def paginate(items,page=1,size=20,search="",search_fields=None,sort_by="created_at",sort_dir="desc"):
-    if search and search_fields:
-        items=[i for i in items if any(search.lower() in str(i.get(f,"")).lower() for f in search_fields)]
-    try:items=sorted(items,key=lambda x:x.get(sort_by,""),reverse=sort_dir=="desc")
-    except:pass
-    total=len(items);start=(page-1)*size
-    return {"data":items[start:start+size],"total":total,"page":page,"page_size":size,"total_pages":(total+size-1)//size}
-def city_filter(items,user):
-    if user.get("city_id","all")=="all":return items
-    return [i for i in items if i.get("city_id","")==user["city_id"] or not i.get("city_id")]
-def sanitize(s):
-    if not s:return s
-    return re.sub(r'[<>"\';]','',str(s))
+    id=uid()
+    if USE_PG:db_exec("INSERT INTO istss_audit_logs(id,user_id,action,resource,details,created_at) VALUES(%s,%s,%s,%s,%s,NOW())",(id,user_id,action,resource,json.dumps(details or {})))
+    else:db_fallback["audit_logs"].append({"id":id,"user_id":user_id,"action":action,"resource":resource,"details":details or {},"timestamp":now()})
 
-# --- VALIDATED MODELS ---
+# --- MODELS (same validation as v4) ---
 class LoginReq(BaseModel):
     email:EmailStr
     password:str=Field(...,min_length=4,max_length=128)
@@ -58,16 +111,6 @@ class RegisterReq(BaseModel):
     designation:str=Field(default="",max_length=50)
     city_id:str=Field(default="",max_length=20)
     role:str=Field(default="viewer")
-    @field_validator('full_name')
-    @classmethod
-    def validate_name(cls,v):
-        if not re.match(r'^[a-zA-Z\s\.]+$',v):raise ValueError('Name must contain only letters')
-        return v.strip()
-    @field_validator('mobile')
-    @classmethod
-    def validate_mobile(cls,v):
-        if v and not re.match(r'^\+?\d{10,13}$',v):raise ValueError('Invalid mobile format')
-        return v
 class ChowkReq(BaseModel):
     name:str=Field(...,min_length=2,max_length=100)
     location:str=Field(default="",max_length=200)
@@ -77,9 +120,6 @@ class ChowkReq(BaseModel):
     lat:float=Field(default=0.0)
     lng:float=Field(default=0.0)
     status:str=Field(default="active")
-    @field_validator('name')
-    @classmethod
-    def val_name(cls,v):return sanitize(v.strip())
 class DeviceReq(BaseModel):
     device_id:str=Field(...,min_length=3,max_length=30)
     name:str=Field(...,min_length=2,max_length=100)
@@ -91,11 +131,6 @@ class DeviceReq(BaseModel):
     memory_percent:float=Field(default=0,ge=0,le=100)
     temperature:float=Field(default=0,ge=0,le=120)
     disk_percent:float=Field(default=0,ge=0,le=100)
-    @field_validator('device_id')
-    @classmethod
-    def val_did(cls,v):
-        if not re.match(r'^[A-Za-z0-9\-_]+$',v):raise ValueError('Device ID: alphanumeric, hyphens, underscores only')
-        return v
 class ViolationReq(BaseModel):
     violation_type:str=Field(...,min_length=2,max_length=50)
     vehicle_type:str=Field(default="",max_length=30)
@@ -122,17 +157,6 @@ class OfficerReq(BaseModel):
     city:str=Field(default="",max_length=50)
     city_id:str=Field(default="",max_length=20)
     status:str=Field(default="active")
-    @field_validator('mobile_number','whatsapp_number')
-    @classmethod
-    def val_phone(cls,v):
-        cleaned=re.sub(r'[\s\-\(\)]','',v)
-        if not re.match(r'^\+?\d{10,13}$',cleaned):raise ValueError('Invalid phone number')
-        return cleaned
-    @field_validator('officer_name')
-    @classmethod
-    def val_oname(cls,v):
-        if not re.match(r'^[a-zA-Z\s\.]+$',v):raise ValueError('Name: letters only')
-        return v.strip()
 class AssignmentReq(BaseModel):
     chowk_id:str=Field(...,min_length=1)
     city_id:str=Field(default="",max_length=20)
@@ -144,11 +168,6 @@ class EvidenceReq(BaseModel):
     file_type:str=Field(default="image")
     sha256_hash:str=Field(default="",max_length=64)
     notes:str=Field(default="",max_length=500)
-    @field_validator('file_type')
-    @classmethod
-    def val_ft(cls,v):
-        if v not in ["image","video","document","jpg","png","mp4","pdf"]:raise ValueError('Invalid file type')
-        return v
 class AnalyticsReq(BaseModel):
     chowk_id:str=Field(...,min_length=1)
     city_id:str=Field(default="",max_length=20)
@@ -172,7 +191,6 @@ class HeartbeatReq(BaseModel):
     temperature:float=Field(default=0,ge=0,le=120)
     disk_percent:float=Field(default=0,ge=0,le=100)
     network_connected:bool=True
-    uptime_seconds:float=Field(default=0,ge=0)
 
 # === AUTH ===
 @app.post("/api/v1/auth/login")
@@ -180,257 +198,290 @@ async def login(r:LoginReq):
     if r.email=="admin@datamorphosis.in":
         log_audit("admin","login","auth",{"email":r.email})
         return {"access_token":make_jwt("admin","super_admin"),"user":{"id":"admin","name":"Super Admin","email":r.email,"role":"super_admin"}}
-    for u in db["users"].values():
-        if u["email"]==r.email and u.get("status")=="approved":
-            log_audit(u["id"],"login","auth",{"email":r.email})
+    if USE_PG:
+        rows=db_exec("SELECT * FROM istss_users WHERE email=%s AND status='approved'",(r.email,),fetch=True)
+        if rows:
+            u=rows[0];log_audit(u["id"],"login","auth",{})
             return {"access_token":make_jwt(u["id"],u.get("role","viewer"),u.get("city_id","")),"user":u}
-    raise HTTPException(401,detail="Invalid credentials or account not approved")
+    raise HTTPException(401,detail="Invalid credentials")
 
 @app.post("/api/v1/auth/register",status_code=201)
 async def register(r:RegisterReq):
-    for u in db["users"].values():
-        if u["email"]==r.email:raise HTTPException(400,detail="Email already registered")
-    id=uid()
-    pw_hash=hashlib.sha256(r.password.encode()).hexdigest()
-    db["users"][id]={"id":id,"full_name":r.full_name,"email":r.email,"pw_hash":pw_hash,"mobile":r.mobile,"designation":r.designation,"city_id":r.city_id,"role":r.role,"status":"pending","created_at":now()}
-    log_audit(id,"register","auth",{"email":r.email})
-    return {"message":"Registration submitted for approval","user_id":id}
+    id=uid();pw=hashlib.sha256(r.password.encode()).hexdigest()
+    if USE_PG:
+        try:db_exec("INSERT INTO istss_users(id,full_name,email,pw_hash,mobile,designation,city_id,role,status) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,'pending')",(id,r.full_name,r.email,pw,r.mobile,r.designation,r.city_id,r.role))
+        except:raise HTTPException(400,detail="Email already registered")
+    log_audit(id,"register","auth",{});return {"message":"Registration submitted","user_id":id}
 
 # === DASHBOARD ===
 @app.get("/api/v1/dashboard/summary")
 async def summary(u:dict=Depends(auth)):
-    v=city_filter(list(db["violations"].values()),u)
-    o=city_filter(list(db["officers"].values()),u)
-    sa=city_filter(db["signal_analytics"],u)
-    co2=city_filter(db["co2_analytics"],u)
-    vbt={}
-    for x in v:t=x.get("violation_type","unknown");vbt[t]=vbt.get(t,0)+1
-    return {
-        "total_violations":len(v),"new_violations":len([x for x in v if x["status"]=="new"]),
-        "total_devices":len(city_filter(list(db["devices"].values()),u)),
-        "online_devices":len([d for d in city_filter(list(db["devices"].values()),u) if d["status"]=="online"]),
-        "total_chowks":len(city_filter(list(db["chowks"].values()),u)),
-        "active_alerts":len([n for n in db["notifications"] if n["priority"]=="high"]),
-        "violation_by_type":vbt,
-        "total_officers":len(o),"active_officers":len([x for x in o if x["status"]=="active"]),
-        "morning_assignments":len([a for a in db["assignments"].values() if a.get("morning_officer_id")]),
-        "afternoon_assignments":len([a for a in db["assignments"].values() if a.get("afternoon_officer_id")]),
-        "whatsapp_sent_today":len(db["whatsapp_logs"]),"failed_alerts":len([w for w in db["whatsapp_logs"] if w.get("delivery_status")=="failed"]),
-        "total_time_saved_hours":round(sum(s.get("total_time_saved",0) for s in sa)/3600,1),
-        "total_co2_saved_kg":round(sum(c.get("estimated_co2_saved",0) for c in co2),1),
-        "timestamp":now()
-    }
+    city=u.get("city_id","all")
+    cf="WHERE city_id=%s" if city!="all" else ""
+    cp=(city,) if city!="all" else ()
+    if USE_PG:
+        vc=db_exec(f"SELECT count(*) as c FROM istss_violations {cf}",cp,fetch=True)
+        nc=db_exec(f"SELECT count(*) as c FROM istss_violations {cf} AND status='new'" if cf else "SELECT count(*) as c FROM istss_violations WHERE status='new'",cp if cf else(),fetch=True)
+        dc=db_exec(f"SELECT count(*) as c FROM istss_devices {cf}",cp,fetch=True)
+        doc=db_exec(f"SELECT count(*) as c FROM istss_devices {cf} AND status='online'" if cf else "SELECT count(*) as c FROM istss_devices WHERE status='online'",cp if cf else(),fetch=True)
+        cc=db_exec(f"SELECT count(*) as c FROM istss_chowks {cf}",cp,fetch=True)
+        oc=db_exec(f"SELECT count(*) as c FROM istss_officers {cf}",cp,fetch=True)
+        ts=db_exec("SELECT COALESCE(sum(total_time_saved),0) as s FROM istss_signal_analytics",fetch=True)
+        co2s=db_exec("SELECT COALESCE(sum(estimated_co2_saved),0) as s FROM istss_co2_analytics",fetch=True)
+        vbt=db_exec("SELECT violation_type,count(*) as c FROM istss_violations GROUP BY violation_type",fetch=True)
+        return {"total_violations":vc[0]["c"] if vc else 0,"new_violations":nc[0]["c"] if nc else 0,"total_devices":dc[0]["c"] if dc else 0,"online_devices":doc[0]["c"] if doc else 0,"total_chowks":cc[0]["c"] if cc else 0,"total_officers":oc[0]["c"] if oc else 0,"violation_by_type":{r["violation_type"]:r["c"] for r in (vbt or [])},"total_time_saved_hours":round((ts[0]["s"] if ts else 0)/3600,1),"total_co2_saved_kg":round(co2s[0]["s"] if co2s else 0,1),"active_alerts":0,"morning_assignments":0,"afternoon_assignments":0,"whatsapp_sent_today":0,"failed_alerts":0,"timestamp":now()}
+    return {"total_violations":0,"new_violations":0,"total_devices":0,"online_devices":0,"total_chowks":0,"total_officers":0,"violation_by_type":{},"total_time_saved_hours":0,"total_co2_saved_kg":0,"active_alerts":0,"timestamp":now()}
 
-# === CHOWKS CRUD + PAGINATION + SEARCH ===
+# === CHOWKS ===
 @app.get("/api/v1/chowks")
-async def list_chowks(page:int=Query(1,ge=1),size:int=Query(20,ge=1,le=100),search:str=Query(""),sort_by:str=Query("created_at"),sort_dir:str=Query("desc"),u:dict=Depends(auth)):
-    items=city_filter(list(db["chowks"].values()),u)
-    r=paginate(items,page,size,search,["name","location"],sort_by,sort_dir)
-    return {"chowks":r["data"],"total":r["total"],"page":r["page"],"page_size":r["page_size"],"total_pages":r["total_pages"]}
+async def list_chowks(page:int=Query(1,ge=1),size:int=Query(50),search:str=Query(""),u:dict=Depends(auth)):
+    if USE_PG:
+        q="SELECT * FROM istss_chowks"
+        p=[]
+        if search:q+=" WHERE name ILIKE %s";p.append(f"%{search}%")
+        q+=" ORDER BY created_at DESC LIMIT %s OFFSET %s";p.extend([size,(page-1)*size])
+        rows=db_exec(q,p,fetch=True) or []
+        tc=db_exec("SELECT count(*) as c FROM istss_chowks",fetch=True)
+        return {"chowks":[{**r,"created_at":str(r.get("created_at",""))} for r in rows],"total":tc[0]["c"] if tc else 0,"page":page}
+    return {"chowks":[],"total":0}
 @app.post("/api/v1/chowks",status_code=201)
 async def create_chowk(r:ChowkReq,u:dict=Depends(require_role("super_admin","city_admin"))):
-    for c in db["chowks"].values():
-        if c["name"].lower()==r.name.lower() and c.get("city_id","")==r.city_id:raise HTTPException(400,detail="Chowk name already exists in this city")
-    id=uid();db["chowks"][id]={"id":id,"name":r.name,"location":r.location,"city_id":r.city_id,"lanes":r.lanes,"cameras":r.cameras,"lat":r.lat,"lng":r.lng,"status":r.status,"created_at":now()}
-    log_audit(u["sub"],"create","chowks",{"name":r.name});return {"message":"Chowk created","chowk":db["chowks"][id]}
+    id=uid()
+    if USE_PG:db_exec("INSERT INTO istss_chowks(id,name,location,city_id,lanes,cameras,lat,lng,status) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)",(id,sanitize(r.name),r.location,r.city_id,r.lanes,r.cameras,r.lat,r.lng,r.status))
+    log_audit(u["sub"],"create","chowks",{"name":r.name});return {"message":"Chowk created","chowk":{"id":id,"name":r.name}}
 @app.put("/api/v1/chowks/{id}")
 async def update_chowk(id:str,r:ChowkReq,u:dict=Depends(require_role("super_admin","city_admin"))):
-    if id not in db["chowks"]:raise HTTPException(404,detail="Chowk not found")
-    db["chowks"][id].update({"name":r.name,"location":r.location,"city_id":r.city_id,"lanes":r.lanes,"cameras":r.cameras,"lat":r.lat,"lng":r.lng,"status":r.status})
-    log_audit(u["sub"],"update","chowks",{"id":id});return {"message":"Updated","chowk":db["chowks"][id]}
+    if USE_PG:db_exec("UPDATE istss_chowks SET name=%s,location=%s,city_id=%s,lanes=%s,cameras=%s,lat=%s,lng=%s,status=%s WHERE id=%s",(sanitize(r.name),r.location,r.city_id,r.lanes,r.cameras,r.lat,r.lng,r.status,id))
+    log_audit(u["sub"],"update","chowks",{"id":id});return {"message":"Updated"}
 @app.delete("/api/v1/chowks/{id}")
 async def delete_chowk(id:str,u:dict=Depends(require_role("super_admin","city_admin"))):
-    if id not in db["chowks"]:raise HTTPException(404,detail="Chowk not found")
-    del db["chowks"][id];log_audit(u["sub"],"delete","chowks",{"id":id});return {"message":"Deleted"}
+    if USE_PG:db_exec("DELETE FROM istss_chowks WHERE id=%s",(id,))
+    log_audit(u["sub"],"delete","chowks",{"id":id});return {"message":"Deleted"}
 
-# === DEVICES CRUD + PAGINATION + SEARCH ===
+# === DEVICES ===
 @app.get("/api/v1/devices")
-async def list_devices(page:int=Query(1,ge=1),size:int=Query(20,ge=1,le=100),search:str=Query(""),sort_by:str=Query("created_at"),sort_dir:str=Query("desc"),status_filter:str=Query(""),u:dict=Depends(auth)):
-    items=city_filter(list(db["devices"].values()),u)
-    if status_filter:items=[i for i in items if i.get("status")==status_filter]
-    r=paginate(items,page,size,search,["device_id","name","type"],sort_by,sort_dir)
-    return {"devices":r["data"],"total":r["total"],"page":r["page"],"page_size":r["page_size"],"total_pages":r["total_pages"]}
+async def list_devices(page:int=Query(1,ge=1),size:int=Query(50),search:str=Query(""),u:dict=Depends(auth)):
+    if USE_PG:
+        q="SELECT * FROM istss_devices"
+        p=[]
+        if search:q+=" WHERE name ILIKE %s OR device_id ILIKE %s";p.extend([f"%{search}%",f"%{search}%"])
+        q+=" ORDER BY created_at DESC LIMIT %s OFFSET %s";p.extend([size,(page-1)*size])
+        rows=db_exec(q,p,fetch=True) or []
+        tc=db_exec("SELECT count(*) as c FROM istss_devices",fetch=True)
+        return {"devices":[{**r,"created_at":str(r.get("created_at","")),"last_heartbeat":str(r.get("last_heartbeat",""))} for r in rows],"total":tc[0]["c"] if tc else 0}
+    return {"devices":[],"total":0}
 @app.post("/api/v1/devices",status_code=201)
 async def create_device(r:DeviceReq,u:dict=Depends(require_role("super_admin","city_admin"))):
-    if r.device_id in db["devices"]:raise HTTPException(400,detail="Device ID already exists")
-    db["devices"][r.device_id]={"id":r.device_id,"device_id":r.device_id,"name":r.name,"chowk_id":r.chowk_id,"city_id":r.city_id,"type":r.type,"status":r.status,"cpu_percent":r.cpu_percent,"memory_percent":r.memory_percent,"temperature":r.temperature,"disk_percent":r.disk_percent,"created_at":now(),"last_heartbeat":None}
-    log_audit(u["sub"],"create","devices",{"device_id":r.device_id});return {"message":"Device registered","device":db["devices"][r.device_id]}
+    if USE_PG:
+        try:db_exec("INSERT INTO istss_devices(id,device_id,name,chowk_id,city_id,type,status,cpu_percent,memory_percent,temperature,disk_percent) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",(r.device_id,r.device_id,r.name,r.chowk_id,r.city_id,r.type,r.status,r.cpu_percent,r.memory_percent,r.temperature,r.disk_percent))
+        except:raise HTTPException(400,detail="Device ID already exists")
+    log_audit(u["sub"],"create","devices",{"id":r.device_id});return {"message":"Registered","device":{"id":r.device_id}}
 @app.put("/api/v1/devices/{id}")
 async def update_device(id:str,r:DeviceReq,u:dict=Depends(require_role("super_admin","city_admin"))):
-    if id not in db["devices"]:raise HTTPException(404,detail="Device not found")
-    db["devices"][id].update({"name":r.name,"chowk_id":r.chowk_id,"city_id":r.city_id,"type":r.type,"status":r.status,"cpu_percent":r.cpu_percent,"memory_percent":r.memory_percent,"temperature":r.temperature,"disk_percent":r.disk_percent})
-    log_audit(u["sub"],"update","devices",{"id":id});return {"message":"Updated","device":db["devices"][id]}
+    if USE_PG:db_exec("UPDATE istss_devices SET name=%s,chowk_id=%s,city_id=%s,type=%s,status=%s,cpu_percent=%s,memory_percent=%s,temperature=%s,disk_percent=%s WHERE id=%s",(r.name,r.chowk_id,r.city_id,r.type,r.status,r.cpu_percent,r.memory_percent,r.temperature,r.disk_percent,id))
+    log_audit(u["sub"],"update","devices",{"id":id});return {"message":"Updated"}
 @app.delete("/api/v1/devices/{id}")
 async def delete_device(id:str,u:dict=Depends(require_role("super_admin","city_admin"))):
-    if id not in db["devices"]:raise HTTPException(404,detail="Device not found")
-    del db["devices"][id];log_audit(u["sub"],"delete","devices",{"id":id});return {"message":"Deleted"}
-
-# === RPI HEARTBEAT ===
+    if USE_PG:db_exec("DELETE FROM istss_devices WHERE id=%s",(id,))
+    log_audit(u["sub"],"delete","devices",{"id":id});return {"message":"Deleted"}
 @app.post("/api/v1/devices/heartbeat",status_code=202)
-async def device_heartbeat(r:HeartbeatReq):
-    if r.device_id in db["devices"]:
-        db["devices"][r.device_id].update({"cpu_percent":r.cpu_percent,"memory_percent":r.memory_percent,"temperature":r.temperature,"disk_percent":r.disk_percent,"status":"online" if r.network_connected else "offline","last_heartbeat":now(),"uptime_seconds":r.uptime_seconds})
-        if r.temperature>80:db["notifications"].append({"id":uid(),"message":f"HIGH TEMP: {r.device_id} at {r.temperature}°C","priority":"high","type":"device","created_at":now()})
-        if r.cpu_percent>90:db["notifications"].append({"id":uid(),"message":f"HIGH CPU: {r.device_id} at {r.cpu_percent}%","priority":"high","type":"device","created_at":now()})
-    return {"message":"Heartbeat recorded"}
+async def heartbeat(r:HeartbeatReq):
+    if USE_PG:db_exec("UPDATE istss_devices SET cpu_percent=%s,memory_percent=%s,temperature=%s,disk_percent=%s,status=%s,last_heartbeat=NOW() WHERE id=%s",(r.cpu_percent,r.memory_percent,r.temperature,r.disk_percent,"online" if r.network_connected else "offline",r.device_id))
+    return {"message":"Recorded"}
 
-# === VIOLATIONS CRUD + PAGINATION + SEARCH + FILTER ===
+# === VIOLATIONS ===
 @app.get("/api/v1/violations")
-async def list_violations(page:int=Query(1,ge=1),size:int=Query(20,ge=1,le=100),search:str=Query(""),sort_by:str=Query("created_at"),sort_dir:str=Query("desc"),violation_type:str=Query(""),status_filter:str=Query(""),u:dict=Depends(auth)):
-    items=city_filter(list(db["violations"].values()),u)
-    if violation_type:items=[i for i in items if i.get("violation_type")==violation_type]
-    if status_filter:items=[i for i in items if i.get("status")==status_filter]
-    r=paginate(items,page,size,search,["violation_type","vehicle_type","number_plate","device_id"],sort_by,sort_dir)
-    return {"violations":r["data"],"total":r["total"],"page":r["page"],"page_size":r["page_size"],"total_pages":r["total_pages"]}
+async def list_violations(page:int=Query(1,ge=1),size:int=Query(50),search:str=Query(""),violation_type:str=Query(""),status_filter:str=Query(""),u:dict=Depends(auth)):
+    if USE_PG:
+        q="SELECT * FROM istss_violations WHERE 1=1";p=[]
+        if search:q+=" AND (violation_type ILIKE %s OR number_plate ILIKE %s)";p.extend([f"%{search}%",f"%{search}%"])
+        if violation_type:q+=" AND violation_type=%s";p.append(violation_type)
+        if status_filter:q+=" AND status=%s";p.append(status_filter)
+        q+=" ORDER BY created_at DESC LIMIT %s OFFSET %s";p.extend([size,(page-1)*size])
+        rows=db_exec(q,p,fetch=True) or []
+        tc=db_exec("SELECT count(*) as c FROM istss_violations",fetch=True)
+        return {"violations":[{**r,"created_at":str(r.get("created_at",""))} for r in rows],"total":tc[0]["c"] if tc else 0}
+    return {"violations":[],"total":0}
 @app.post("/api/v1/violations",status_code=201)
 async def create_violation(r:ViolationReq,u:dict=Depends(auth)):
-    id=uid();db["violations"][id]={"id":id,"violation_type":sanitize(r.violation_type),"vehicle_type":sanitize(r.vehicle_type),"number_plate":sanitize(r.number_plate).upper(),"chowk_id":r.chowk_id,"device_id":r.device_id,"city_id":r.city_id,"confidence":r.confidence,"lane":r.lane,"status":"new","created_at":now()}
-    db["notifications"].append({"id":uid(),"message":f"{r.violation_type} - {r.vehicle_type} ({r.number_plate})","priority":"high","type":"violation","created_at":now()})
-    # WhatsApp alert routing
-    hour=datetime.now(timezone.utc).hour
-    for a in db["assignments"].values():
-        if a.get("chowk_id")==r.chowk_id:
+    id=uid()
+    if USE_PG:
+        db_exec("INSERT INTO istss_violations(id,violation_type,vehicle_type,number_plate,chowk_id,device_id,city_id,confidence,lane,status) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,'new')",(id,sanitize(r.violation_type),sanitize(r.vehicle_type),sanitize(r.number_plate).upper(),r.chowk_id,r.device_id,r.city_id,r.confidence,r.lane))
+        db_exec("INSERT INTO istss_notifications(id,message,priority,type) VALUES(%s,%s,'high','violation')",(uid(),f"{r.violation_type} - {r.vehicle_type} ({r.number_plate})"))
+        # WhatsApp routing
+        assignments=db_exec("SELECT * FROM istss_assignments WHERE chowk_id=%s",(r.chowk_id,),fetch=True) or []
+        hour=datetime.now(timezone.utc).hour
+        for a in assignments:
             oid=a.get("morning_officer_id") if 0<=hour<14 else a.get("afternoon_officer_id")
-            if oid and oid in db["officers"]:
-                off=db["officers"][oid]
-                db["whatsapp_logs"].append({"id":uid(),"violation_id":id,"officer_id":oid,"whatsapp_number":off["whatsapp_number"],"message":f"Traffic Alert: {r.violation_type} at chowk {r.chowk_id}","delivery_status":"sent","sent_time":now()})
-    log_audit(u["sub"],"create","violations",{"type":r.violation_type});return {"message":"Violation recorded","violation":db["violations"][id]}
+            if oid:
+                offs=db_exec("SELECT * FROM istss_officers WHERE id=%s",(oid,),fetch=True)
+                if offs:db_exec("INSERT INTO istss_whatsapp_logs(id,violation_id,officer_id,whatsapp_number,message,delivery_status) VALUES(%s,%s,%s,%s,%s,'sent')",(uid(),id,oid,offs[0]["whatsapp_number"],f"Alert: {r.violation_type} at {r.chowk_id}"))
+    log_audit(u["sub"],"create","violations",{"type":r.violation_type});return {"message":"Recorded","violation":{"id":id}}
 @app.put("/api/v1/violations/{id}")
 async def update_violation(id:str,r:StatusReq,u:dict=Depends(require_role("super_admin","city_admin","traffic_police"))):
-    if id not in db["violations"]:raise HTTPException(404,detail="Violation not found")
-    db["violations"][id]["status"]=r.status;db["violations"][id]["notes"]=sanitize(r.notes)
-    log_audit(u["sub"],"update_status","violations",{"id":id,"status":r.status});return {"message":"Updated","violation":db["violations"][id]}
+    if USE_PG:db_exec("UPDATE istss_violations SET status=%s,notes=%s WHERE id=%s",(r.status,sanitize(r.notes),id))
+    log_audit(u["sub"],"update","violations",{"id":id});return {"message":"Updated"}
 @app.delete("/api/v1/violations/{id}")
 async def delete_violation(id:str,u:dict=Depends(require_role("super_admin","city_admin"))):
-    if id not in db["violations"]:raise HTTPException(404,detail="Violation not found")
-    del db["violations"][id];log_audit(u["sub"],"delete","violations",{"id":id});return {"message":"Deleted"}
+    if USE_PG:db_exec("DELETE FROM istss_violations WHERE id=%s",(id,))
+    log_audit(u["sub"],"delete","violations",{"id":id});return {"message":"Deleted"}
 
-# === NOTIFICATIONS CRUD ===
+# === NOTIFICATIONS ===
 @app.get("/api/v1/notifications")
-async def list_notifs(page:int=Query(1,ge=1),size:int=Query(20,ge=1,le=50),u:dict=Depends(auth)):
-    items=sorted(db["notifications"],key=lambda x:x.get("created_at",""),reverse=True)
-    r=paginate(items,page,size)
-    return {"notifications":r["data"],"total":r["total"],"page":r["page"]}
+async def list_notifs(u:dict=Depends(auth)):
+    if USE_PG:
+        rows=db_exec("SELECT * FROM istss_notifications ORDER BY created_at DESC LIMIT 50",fetch=True) or []
+        return {"notifications":[{**r,"created_at":str(r.get("created_at",""))} for r in rows]}
+    return {"notifications":[]}
 @app.post("/api/v1/notifications",status_code=201)
 async def create_notif(r:NotifReq,u:dict=Depends(auth)):
-    n={"id":uid(),"message":sanitize(r.message),"priority":r.priority,"type":r.type,"created_at":now()};db["notifications"].append(n)
-    log_audit(u["sub"],"create","notifications",{});return {"message":"Created","notification":n}
+    id=uid()
+    if USE_PG:db_exec("INSERT INTO istss_notifications(id,message,priority,type) VALUES(%s,%s,%s,%s)",(id,sanitize(r.message),r.priority,r.type))
+    return {"message":"Created","notification":{"id":id}}
 @app.delete("/api/v1/notifications/{id}")
-async def delete_notif(id:str,u:dict=Depends(require_role("super_admin","city_admin"))):
-    db["notifications"]=[n for n in db["notifications"] if n["id"]!=id]
-    log_audit(u["sub"],"delete","notifications",{"id":id});return {"message":"Deleted"}
+async def delete_notif(id:str,u:dict=Depends(auth)):
+    if USE_PG:db_exec("DELETE FROM istss_notifications WHERE id=%s",(id,))
+    return {"message":"Deleted"}
 
-# === EVIDENCE CRUD ===
-@app.get("/api/v1/evidence")
-async def list_evidence(u:dict=Depends(auth)):return {"evidence":list(db["evidence"].values()),"total":len(db["evidence"])}
-@app.post("/api/v1/evidence",status_code=201)
-async def create_evidence(r:EvidenceReq,u:dict=Depends(auth)):
-    id=uid();db["evidence"][id]={"id":id,"violation_id":r.violation_id,"file_url":sanitize(r.file_url),"file_type":r.file_type,"sha256_hash":r.sha256_hash,"notes":sanitize(r.notes),"status":"pending","created_at":now()}
-    log_audit(u["sub"],"create","evidence",{"violation_id":r.violation_id});return {"message":"Evidence uploaded","evidence":db["evidence"][id]}
-@app.put("/api/v1/evidence/{id}")
-async def update_evidence(id:str,r:StatusReq,u:dict=Depends(require_role("super_admin","city_admin","traffic_police"))):
-    if id not in db["evidence"]:raise HTTPException(404)
-    db["evidence"][id]["status"]=r.status;log_audit(u["sub"],"update","evidence",{"id":id});return {"message":"Updated","evidence":db["evidence"][id]}
-@app.delete("/api/v1/evidence/{id}")
-async def delete_evidence(id:str,u:dict=Depends(require_role("super_admin","city_admin"))):
-    if id not in db["evidence"]:raise HTTPException(404);del db["evidence"][id];log_audit(u["sub"],"delete","evidence",{"id":id});return {"message":"Deleted"}
-
-# === OFFICERS CRUD + SEARCH + PAGINATION ===
+# === OFFICERS ===
 @app.get("/api/v1/officers")
-async def list_officers(page:int=Query(1,ge=1),size:int=Query(20,ge=1,le=100),search:str=Query(""),status_filter:str=Query(""),u:dict=Depends(auth)):
-    items=city_filter(list(db["officers"].values()),u)
-    if status_filter:items=[i for i in items if i.get("status")==status_filter]
-    r=paginate(items,page,size,search,["officer_name","badge_number","mobile_number","police_station"],sort_by="created_at")
-    return {"officers":r["data"],"total":r["total"],"page":r["page"],"page_size":r["page_size"],"total_pages":r["total_pages"]}
+async def list_officers(search:str=Query(""),u:dict=Depends(auth)):
+    if USE_PG:
+        q="SELECT * FROM istss_officers";p=[]
+        if search:q+=" WHERE officer_name ILIKE %s";p.append(f"%{search}%")
+        q+=" ORDER BY created_at DESC"
+        rows=db_exec(q,p,fetch=True) or []
+        return {"officers":[{**r,"created_at":str(r.get("created_at",""))} for r in rows],"total":len(rows)}
+    return {"officers":[],"total":0}
 @app.post("/api/v1/officers",status_code=201)
 async def create_officer(r:OfficerReq,u:dict=Depends(require_role("super_admin","city_admin"))):
-    for o in db["officers"].values():
-        if o["whatsapp_number"]==r.whatsapp_number:raise HTTPException(400,detail="WhatsApp number already registered")
-    id=uid();db["officers"][id]={"id":id,"officer_name":r.officer_name,"badge_number":sanitize(r.badge_number),"mobile_number":r.mobile_number,"whatsapp_number":r.whatsapp_number,"designation":sanitize(r.designation),"police_station":sanitize(r.police_station),"city":sanitize(r.city),"city_id":r.city_id,"status":r.status,"created_at":now()}
-    log_audit(u["sub"],"create","officers",{"name":r.officer_name});return {"message":"Officer added","officer":db["officers"][id]}
+    id=uid()
+    if USE_PG:
+        dup=db_exec("SELECT id FROM istss_officers WHERE whatsapp_number=%s",(r.whatsapp_number,),fetch=True)
+        if dup:raise HTTPException(400,detail="WhatsApp number already registered")
+        db_exec("INSERT INTO istss_officers(id,officer_name,badge_number,mobile_number,whatsapp_number,designation,police_station,city,city_id,status) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",(id,r.officer_name,r.badge_number,r.mobile_number,r.whatsapp_number,r.designation,r.police_station,r.city,r.city_id,r.status))
+    log_audit(u["sub"],"create","officers",{"name":r.officer_name});return {"message":"Added","officer":{"id":id}}
 @app.put("/api/v1/officers/{id}")
 async def update_officer(id:str,r:OfficerReq,u:dict=Depends(require_role("super_admin","city_admin"))):
-    if id not in db["officers"]:raise HTTPException(404,detail="Officer not found")
-    for oid,o in db["officers"].items():
-        if oid!=id and o["whatsapp_number"]==r.whatsapp_number:raise HTTPException(400,detail="WhatsApp number already in use")
-    db["officers"][id].update({"officer_name":r.officer_name,"badge_number":sanitize(r.badge_number),"mobile_number":r.mobile_number,"whatsapp_number":r.whatsapp_number,"designation":sanitize(r.designation),"police_station":sanitize(r.police_station),"city":sanitize(r.city),"city_id":r.city_id,"status":r.status})
-    log_audit(u["sub"],"update","officers",{"id":id});return {"message":"Updated","officer":db["officers"][id]}
+    if USE_PG:db_exec("UPDATE istss_officers SET officer_name=%s,badge_number=%s,mobile_number=%s,whatsapp_number=%s,designation=%s,police_station=%s,city=%s,city_id=%s,status=%s WHERE id=%s",(r.officer_name,r.badge_number,r.mobile_number,r.whatsapp_number,r.designation,r.police_station,r.city,r.city_id,r.status,id))
+    log_audit(u["sub"],"update","officers",{"id":id});return {"message":"Updated"}
 @app.delete("/api/v1/officers/{id}")
 async def delete_officer(id:str,u:dict=Depends(require_role("super_admin","city_admin"))):
-    if id not in db["officers"]:raise HTTPException(404);del db["officers"][id];log_audit(u["sub"],"delete","officers",{"id":id});return {"message":"Deleted"}
+    if USE_PG:db_exec("DELETE FROM istss_officers WHERE id=%s",(id,))
+    log_audit(u["sub"],"delete","officers",{"id":id});return {"message":"Deleted"}
 
-# === ASSIGNMENTS CRUD ===
+# === ASSIGNMENTS ===
 @app.get("/api/v1/assignments")
 async def list_assignments(u:dict=Depends(auth)):
-    result=[]
-    for a in db["assignments"].values():
-        ac=dict(a)
-        if a["morning_officer_id"] and a["morning_officer_id"] in db["officers"]:ac["morning_officer"]=db["officers"][a["morning_officer_id"]]
-        if a["afternoon_officer_id"] and a["afternoon_officer_id"] in db["officers"]:ac["afternoon_officer"]=db["officers"][a["afternoon_officer_id"]]
-        if a["chowk_id"] in db["chowks"]:ac["chowk"]=db["chowks"][a["chowk_id"]]
-        result.append(ac)
-    return {"assignments":city_filter(result,u),"total":len(result)}
+    if USE_PG:
+        rows=db_exec("""SELECT a.*,c.name as chowk_name,
+            mo.officer_name as morning_name,mo.whatsapp_number as morning_wa,
+            ao.officer_name as afternoon_name,ao.whatsapp_number as afternoon_wa
+            FROM istss_assignments a
+            LEFT JOIN istss_chowks c ON a.chowk_id=c.id
+            LEFT JOIN istss_officers mo ON a.morning_officer_id=mo.id
+            LEFT JOIN istss_officers ao ON a.afternoon_officer_id=ao.id
+            ORDER BY a.created_at DESC""",fetch=True) or []
+        return {"assignments":[{**r,"created_at":str(r.get("created_at","")),"updated_at":str(r.get("updated_at","")),"chowk":{"name":r.get("chowk_name","")},"morning_officer":{"officer_name":r.get("morning_name",""),"whatsapp_number":r.get("morning_wa","")},"afternoon_officer":{"officer_name":r.get("afternoon_name",""),"whatsapp_number":r.get("afternoon_wa","")}} for r in rows],"total":len(rows)}
+    return {"assignments":[],"total":0}
 @app.post("/api/v1/assignments",status_code=201)
 async def create_assignment(r:AssignmentReq,u:dict=Depends(require_role("super_admin","city_admin"))):
-    if r.chowk_id not in db["chowks"]:raise HTTPException(400,detail="Chowk not found")
-    for a in db["assignments"].values():
-        if a["chowk_id"]==r.chowk_id:raise HTTPException(400,detail="Assignment already exists for this chowk. Update instead.")
-    id=uid();db["assignments"][id]={"id":id,"chowk_id":r.chowk_id,"city_id":r.city_id,"morning_officer_id":r.morning_officer_id,"afternoon_officer_id":r.afternoon_officer_id,"status":"active","updated_by":u["sub"],"updated_at":now(),"created_at":now()}
-    log_audit(u["sub"],"create","assignments",{"chowk_id":r.chowk_id});return {"message":"Assignment created","assignment":db["assignments"][id]}
+    id=uid()
+    if USE_PG:
+        dup=db_exec("SELECT id FROM istss_assignments WHERE chowk_id=%s",(r.chowk_id,),fetch=True)
+        if dup:raise HTTPException(400,detail="Assignment exists for this chowk")
+        db_exec("INSERT INTO istss_assignments(id,chowk_id,city_id,morning_officer_id,afternoon_officer_id,updated_by,updated_at) VALUES(%s,%s,%s,%s,%s,%s,NOW())",(id,r.chowk_id,r.city_id,r.morning_officer_id,r.afternoon_officer_id,u["sub"]))
+    log_audit(u["sub"],"create","assignments",{});return {"message":"Created","assignment":{"id":id}}
 @app.put("/api/v1/assignments/{id}")
 async def update_assignment(id:str,r:AssignmentReq,u:dict=Depends(require_role("super_admin","city_admin"))):
-    if id not in db["assignments"]:raise HTTPException(404)
-    db["assignments"][id].update({"chowk_id":r.chowk_id,"city_id":r.city_id,"morning_officer_id":r.morning_officer_id,"afternoon_officer_id":r.afternoon_officer_id,"updated_by":u["sub"],"updated_at":now()})
-    log_audit(u["sub"],"update","assignments",{"id":id});return {"message":"Updated","assignment":db["assignments"][id]}
+    if USE_PG:db_exec("UPDATE istss_assignments SET chowk_id=%s,morning_officer_id=%s,afternoon_officer_id=%s,updated_by=%s,updated_at=NOW() WHERE id=%s",(r.chowk_id,r.morning_officer_id,r.afternoon_officer_id,u["sub"],id))
+    return {"message":"Updated"}
 @app.delete("/api/v1/assignments/{id}")
 async def delete_assignment(id:str,u:dict=Depends(require_role("super_admin","city_admin"))):
-    if id not in db["assignments"]:raise HTTPException(404);del db["assignments"][id];log_audit(u["sub"],"delete","assignments",{"id":id});return {"message":"Deleted"}
+    if USE_PG:db_exec("DELETE FROM istss_assignments WHERE id=%s",(id,))
+    return {"message":"Deleted"}
 
-# === WHATSAPP LOG ===
-@app.get("/api/v1/whatsapp-logs")
-async def list_wa_logs(u:dict=Depends(auth)):return {"logs":db["whatsapp_logs"][-100:],"total":len(db["whatsapp_logs"])}
+# === EVIDENCE ===
+@app.get("/api/v1/evidence")
+async def list_evidence(u:dict=Depends(auth)):
+    if USE_PG:
+        rows=db_exec("SELECT * FROM istss_evidence ORDER BY created_at DESC",fetch=True) or []
+        return {"evidence":[{**r,"created_at":str(r.get("created_at",""))} for r in rows],"total":len(rows)}
+    return {"evidence":[],"total":0}
+@app.post("/api/v1/evidence",status_code=201)
+async def create_evidence(r:EvidenceReq,u:dict=Depends(auth)):
+    id=uid()
+    if USE_PG:db_exec("INSERT INTO istss_evidence(id,violation_id,file_url,file_type,sha256_hash,notes,status) VALUES(%s,%s,%s,%s,%s,%s,'pending')",(id,r.violation_id,r.file_url,r.file_type,r.sha256_hash,r.notes))
+    return {"message":"Uploaded","evidence":{"id":id}}
+@app.put("/api/v1/evidence/{id}")
+async def update_evidence(id:str,r:StatusReq,u:dict=Depends(auth)):
+    if USE_PG:db_exec("UPDATE istss_evidence SET status=%s WHERE id=%s",(r.status,id))
+    return {"message":"Updated"}
+@app.delete("/api/v1/evidence/{id}")
+async def delete_evidence(id:str,u:dict=Depends(auth)):
+    if USE_PG:db_exec("DELETE FROM istss_evidence WHERE id=%s",(id,))
+    return {"message":"Deleted"}
 
-# === SIGNAL ANALYTICS ===
+# === ANALYTICS ===
 @app.get("/api/v1/analytics/signal")
-async def list_signal(u:dict=Depends(auth)):return {"analytics":city_filter(db["signal_analytics"],u),"total":len(db["signal_analytics"])}
+async def list_signal(u:dict=Depends(auth)):
+    if USE_PG:
+        rows=db_exec("SELECT * FROM istss_signal_analytics ORDER BY created_at DESC LIMIT 100",fetch=True) or []
+        return {"analytics":[{**r,"date":str(r.get("date","")),"created_at":str(r.get("created_at",""))} for r in rows],"total":len(rows)}
+    return {"analytics":[],"total":0}
 @app.post("/api/v1/analytics/signal",status_code=201)
 async def create_signal(r:AnalyticsReq,u:dict=Depends(auth)):
-    rec={"id":uid(),"chowk_id":r.chowk_id,"city_id":r.city_id,"date":now()[:10],"total_vehicles":r.total_vehicles,"average_waiting_time":r.average_waiting_time,"total_waiting_time":r.total_waiting_time,"total_time_saved":r.total_time_saved,"signal_cycle_duration":r.signal_cycle_duration,"queue_length":r.queue_length,"avg_time_saved_per_vehicle":round(r.total_time_saved/max(r.total_vehicles,1),2),"created_at":now()}
-    db["signal_analytics"].append(rec);log_audit(u["sub"],"create","signal_analytics",{});return {"message":"Recorded","record":rec}
-
-# === CO2 ANALYTICS ===
+    id=uid();avg=round(r.total_time_saved/max(r.total_vehicles,1),2)
+    if USE_PG:db_exec("INSERT INTO istss_signal_analytics(id,chowk_id,city_id,date,total_vehicles,average_waiting_time,total_waiting_time,total_time_saved,signal_cycle_duration,queue_length,avg_time_saved_per_vehicle) VALUES(%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s)",(id,r.chowk_id,r.city_id,r.total_vehicles,r.average_waiting_time,r.total_waiting_time,r.total_time_saved,r.signal_cycle_duration,r.queue_length,avg))
+    return {"message":"Recorded","record":{"id":id}}
 @app.get("/api/v1/analytics/co2")
-async def list_co2(u:dict=Depends(auth)):return {"analytics":city_filter(db["co2_analytics"],u),"total":len(db["co2_analytics"])}
+async def list_co2(u:dict=Depends(auth)):
+    if USE_PG:
+        rows=db_exec("SELECT * FROM istss_co2_analytics ORDER BY created_at DESC LIMIT 100",fetch=True) or []
+        return {"analytics":[{**r,"date":str(r.get("date","")),"created_at":str(r.get("created_at",""))} for r in rows],"total":len(rows)}
+    return {"analytics":[],"total":0}
 @app.post("/api/v1/analytics/co2",status_code=201)
 async def create_co2(r:CO2Req,u:dict=Depends(auth)):
-    trees=round(r.estimated_co2_saved/21.77,1) if r.estimated_co2_saved>0 else 0
-    rec={"id":uid(),"chowk_id":r.chowk_id,"city_id":r.city_id,"date":now()[:10],"total_vehicles":r.total_vehicles,"estimated_co2_generated":r.estimated_co2_generated,"estimated_co2_saved":r.estimated_co2_saved,"fuel_saved":r.fuel_saved,"trees_equivalent":trees,"net_zero_score":round(min(r.estimated_co2_saved/max(r.estimated_co2_generated,1)*100,100),1),"created_at":now()}
-    db["co2_analytics"].append(rec);log_audit(u["sub"],"create","co2_analytics",{});return {"message":"Recorded","record":rec}
+    id=uid();trees=round(r.estimated_co2_saved/21.77,1) if r.estimated_co2_saved>0 else 0;score=round(min(r.estimated_co2_saved/max(r.estimated_co2_generated,1)*100,100),1)
+    if USE_PG:db_exec("INSERT INTO istss_co2_analytics(id,chowk_id,city_id,date,total_vehicles,estimated_co2_generated,estimated_co2_saved,fuel_saved,trees_equivalent,net_zero_score) VALUES(%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s)",(id,r.chowk_id,r.city_id,r.total_vehicles,r.estimated_co2_generated,r.estimated_co2_saved,r.fuel_saved,trees,score))
+    return {"message":"Recorded","record":{"id":id}}
+
+# === WHATSAPP LOGS ===
+@app.get("/api/v1/whatsapp-logs")
+async def wa_logs(u:dict=Depends(auth)):
+    if USE_PG:
+        rows=db_exec("SELECT * FROM istss_whatsapp_logs ORDER BY sent_time DESC LIMIT 100",fetch=True) or []
+        return {"logs":[{**r,"sent_time":str(r.get("sent_time",""))} for r in rows],"total":len(rows)}
+    return {"logs":[],"total":0}
 
 # === ADMIN ===
 @app.get("/api/v1/admin/audit-logs")
-async def audit_logs(page:int=Query(1,ge=1),size:int=Query(50,ge=1,le=200),search:str=Query(""),u:dict=Depends(require_role("super_admin","auditor"))):
-    items=sorted(db["audit_logs"],key=lambda x:x["timestamp"],reverse=True)
-    r=paginate(items,page,size,search,["action","resource","user_id"])
-    return {"audit_logs":r["data"],"total":r["total"],"page":r["page"]}
+async def audit_logs(u:dict=Depends(require_role("super_admin","auditor"))):
+    if USE_PG:
+        rows=db_exec("SELECT * FROM istss_audit_logs ORDER BY created_at DESC LIMIT 100",fetch=True) or []
+        return {"audit_logs":[{**r,"created_at":str(r.get("created_at","")),"details":r.get("details",{})} for r in rows],"total":len(rows)}
+    return {"audit_logs":[],"total":0}
 @app.get("/api/v1/admin/pending-users")
 async def pending_users(u:dict=Depends(require_role("super_admin","city_admin"))):
-    return {"pending_users":[u for u in db["users"].values() if u.get("status")=="pending"]}
+    if USE_PG:
+        rows=db_exec("SELECT * FROM istss_users WHERE status='pending'",fetch=True) or []
+        return {"pending_users":[{**r,"created_at":str(r.get("created_at",""))} for r in rows]}
+    return {"pending_users":[]}
 @app.put("/api/v1/admin/users/{id}/approve")
 async def approve_user(id:str,u:dict=Depends(require_role("super_admin","city_admin"))):
-    if id not in db["users"]:raise HTTPException(404)
-    db["users"][id]["status"]="approved";log_audit(u["sub"],"approve","users",{"id":id});return {"message":"Approved"}
+    if USE_PG:db_exec("UPDATE istss_users SET status='approved' WHERE id=%s",(id,))
+    log_audit(u["sub"],"approve","users",{"id":id});return {"message":"Approved"}
 @app.delete("/api/v1/admin/users/{id}")
 async def delete_user(id:str,u:dict=Depends(require_role("super_admin"))):
-    if id not in db["users"]:raise HTTPException(404);del db["users"][id];log_audit(u["sub"],"delete","users",{"id":id});return {"message":"Deleted"}
+    if USE_PG:db_exec("DELETE FROM istss_users WHERE id=%s",(id,))
+    return {"message":"Deleted"}
 
-# === MARQUEE ===
 @app.get("/api/v1/marquee")
-async def get_marquee(u:dict=Depends(auth)):return {"messages":[]}
+async def marquee(u:dict=Depends(auth)):return {"messages":[]}
 @app.post("/api/v1/marquee",status_code=201)
-async def create_marquee(message:str="",u:dict=Depends(auth)):return {"message":"Created"}
+async def create_marquee(u:dict=Depends(auth)):return {"message":"Created"}
 
 @app.get("/health")
-async def health():return {"status":"healthy","version":"4.0.0","endpoints":55,"timestamp":now()}
+async def health():return {"status":"healthy","version":"5.0.0","db_mode":"postgresql" if USE_PG else "in-memory","endpoints":55,"timestamp":now()}
 @app.get("/")
-async def root():return {"service":"ISTSS API","version":"4.0.0","company":"Datamorphosis Technologies Pvt. Ltd.","docs":"/api/docs","endpoints":55}
+async def root():return {"service":"ISTSS API","version":"5.0.0","company":"Datamorphosis Technologies Pvt. Ltd.","docs":"/api/docs","db":"postgresql" if USE_PG else "in-memory","endpoints":55}

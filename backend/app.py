@@ -71,6 +71,7 @@ def init_db():
     """CREATE TABLE IF NOT EXISTS istss_whatsapp_logs(id VARCHAR(10) PRIMARY KEY,violation_id VARCHAR(10),officer_id VARCHAR(10),whatsapp_number VARCHAR(15),message TEXT,delivery_status VARCHAR(20) DEFAULT 'sent',sent_time TIMESTAMPTZ DEFAULT NOW())""",
     """CREATE TABLE IF NOT EXISTS istss_signal_analytics(id VARCHAR(10) PRIMARY KEY,chowk_id VARCHAR(20),city_id VARCHAR(20),date DATE,total_vehicles INT DEFAULT 0,average_waiting_time FLOAT DEFAULT 0,total_waiting_time FLOAT DEFAULT 0,total_time_saved FLOAT DEFAULT 0,signal_cycle_duration FLOAT DEFAULT 0,queue_length INT DEFAULT 0,avg_time_saved_per_vehicle FLOAT DEFAULT 0,created_at TIMESTAMPTZ DEFAULT NOW())""",
     """CREATE TABLE IF NOT EXISTS istss_co2_analytics(id VARCHAR(10) PRIMARY KEY,chowk_id VARCHAR(20),city_id VARCHAR(20),date DATE,total_vehicles INT DEFAULT 0,estimated_co2_generated FLOAT DEFAULT 0,estimated_co2_saved FLOAT DEFAULT 0,fuel_saved FLOAT DEFAULT 0,trees_equivalent FLOAT DEFAULT 0,net_zero_score FLOAT DEFAULT 0,created_at TIMESTAMPTZ DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS istss_settings(key VARCHAR(100) PRIMARY KEY,value JSONB NOT NULL,updated_at TIMESTAMPTZ DEFAULT NOW())""",
     ]
     for sql in sqls:
         try:db_exec(sql)
@@ -480,6 +481,23 @@ async def delete_user(id:str,u:dict=Depends(require_role("super_admin"))):
 async def marquee(u:dict=Depends(auth)):return {"messages":[]}
 @app.post("/api/v1/marquee",status_code=201)
 async def create_marquee(u:dict=Depends(auth)):return {"message":"Created"}
+
+@app.get("/api/v1/settings/{key}")
+async def get_setting(key:str,u:dict=Depends(auth)):
+    key=sanitize(key)
+    if USE_PG:
+        rows=db_exec("SELECT value FROM istss_settings WHERE key=%s",(key,),fetch=True)
+        if rows:return {"key":key,"value":rows[0]["value"]}
+    return {"key":key,"value":None}
+
+@app.put("/api/v1/settings/{key}")
+async def put_setting(key:str,body:Dict[str,Any],u:dict=Depends(auth)):
+    key=sanitize(key)
+    value=body.get("value",{})
+    if USE_PG:
+        db_exec("INSERT INTO istss_settings(key,value,updated_at) VALUES(%s,%s,NOW()) ON CONFLICT(key) DO UPDATE SET value=%s,updated_at=NOW()",(key,json.dumps(value),json.dumps(value)))
+    log_audit(u["sub"],"update_setting","settings",{"key":key})
+    return {"message":"Setting saved","key":key}
 
 @app.get("/health")
 async def health():return {"status":"healthy","version":"5.0.0","db_mode":"postgresql" if USE_PG else "in-memory","endpoints":55,"timestamp":now()}

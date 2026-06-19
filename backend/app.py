@@ -82,6 +82,7 @@ def init_db():
         "ALTER TABLE istss_devices ADD COLUMN IF NOT EXISTS network VARCHAR(50) DEFAULT ''",
         "ALTER TABLE istss_devices ADD COLUMN IF NOT EXISTS tailscale_ip VARCHAR(50) DEFAULT ''",
         "ALTER TABLE istss_devices ADD COLUMN IF NOT EXISTS ssh_user VARCHAR(50) DEFAULT ''",
+        "ALTER TABLE istss_devices ADD COLUMN IF NOT EXISTS ssh_password VARCHAR(100) DEFAULT ''",
     ]:
         try:db_exec(col)
         except:pass
@@ -141,6 +142,7 @@ class DeviceReq(BaseModel):
     network:str=Field(default="",max_length=50)
     tailscale_ip:str=Field(default="",max_length=50)
     ssh_user:str=Field(default="",max_length=50)
+    ssh_password:str=Field(default="",max_length=100)
     cpu_percent:float=Field(default=0,ge=0,le=100)
     memory_percent:float=Field(default=0,ge=0,le=100)
     temperature:float=Field(default=0,ge=0,le=120)
@@ -287,17 +289,102 @@ async def list_devices(page:int=Query(1,ge=1),size:int=Query(50),search:str=Quer
 @app.post("/api/v1/devices",status_code=201)
 async def create_device(r:DeviceReq,u:dict=Depends(require_role("super_admin","city_admin"))):
     if USE_PG:
-        try:db_exec("INSERT INTO istss_devices(id,device_id,name,chowk_id,city_id,type,status,location,network,tailscale_ip,ssh_user,cpu_percent,memory_percent,temperature,disk_percent) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",(r.device_id,r.device_id,r.name or r.device_id,r.chowk_id,r.city_id,r.type,r.status,r.location,r.network,r.tailscale_ip,r.ssh_user,r.cpu_percent,r.memory_percent,r.temperature,r.disk_percent))
+        try:db_exec("INSERT INTO istss_devices(id,device_id,name,chowk_id,city_id,type,status,location,network,tailscale_ip,ssh_user,ssh_password,cpu_percent,memory_percent,temperature,disk_percent) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",(r.device_id,r.device_id,r.name or r.device_id,r.chowk_id,r.city_id,r.type,r.status,r.location,r.network,r.tailscale_ip,r.ssh_user,r.ssh_password,r.cpu_percent,r.memory_percent,r.temperature,r.disk_percent))
         except:raise HTTPException(400,detail="Device ID already exists")
     log_audit(u["sub"],"create","devices",{"id":r.device_id});return {"message":"Registered","device":{"id":r.device_id}}
 @app.put("/api/v1/devices/{id}")
 async def update_device(id:str,r:DeviceReq,u:dict=Depends(require_role("super_admin","city_admin"))):
-    if USE_PG:db_exec("UPDATE istss_devices SET name=%s,chowk_id=%s,city_id=%s,type=%s,status=%s,location=%s,network=%s,tailscale_ip=%s,ssh_user=%s,cpu_percent=%s,memory_percent=%s,temperature=%s,disk_percent=%s WHERE id=%s",(r.name or r.device_id,r.chowk_id,r.city_id,r.type,r.status,r.location,r.network,r.tailscale_ip,r.ssh_user,r.cpu_percent,r.memory_percent,r.temperature,r.disk_percent,id))
+    if USE_PG:db_exec("UPDATE istss_devices SET name=%s,chowk_id=%s,city_id=%s,type=%s,status=%s,location=%s,network=%s,tailscale_ip=%s,ssh_user=%s,ssh_password=%s,cpu_percent=%s,memory_percent=%s,temperature=%s,disk_percent=%s WHERE id=%s",(r.name or r.device_id,r.chowk_id,r.city_id,r.type,r.status,r.location,r.network,r.tailscale_ip,r.ssh_user,r.ssh_password,r.cpu_percent,r.memory_percent,r.temperature,r.disk_percent,id))
     log_audit(u["sub"],"update","devices",{"id":id});return {"message":"Updated"}
 @app.delete("/api/v1/devices/{id}")
 async def delete_device(id:str,u:dict=Depends(require_role("super_admin","city_admin"))):
     if USE_PG:db_exec("DELETE FROM istss_devices WHERE id=%s",(id,))
     log_audit(u["sub"],"delete","devices",{"id":id});return {"message":"Deleted"}
+
+# --- DEVICE SSH LIVE STATUS ---
+def ssh_exec(ip,user,password,cmd,timeout=10):
+    """SSH into device and execute command, return output"""
+    try:
+        import paramiko
+        client=paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(ip,port=22,username=user,password=password,timeout=timeout)
+        stdin,stdout,stderr=client.exec_command(cmd,timeout=timeout)
+        output=stdout.read().decode("utf-8","ignore").strip()
+        client.close()
+        return output
+    except Exception as e:
+        return f"ERROR: {str(e)}"
+
+@app.get("/api/v1/devices/{id}/live-status")
+async def device_live_status(id:str,u:dict=Depends(auth)):
+    """SSH into device and pull real-time system stats"""
+    if not USE_PG:raise HTTPException(400,detail="DB required")
+    rows=db_exec("SELECT tailscale_ip,ssh_user,ssh_password FROM istss_devices WHERE id=%s",(id,),fetch=True)
+    if not rows or not rows[0].get("tailscale_ip"):raise HTTPException(404,detail="Device not found or no Tailscale IP configured")
+    d=rows[0];ip=d["tailscale_ip"];user=d["ssh_user"];pwd=d["ssh_password"]
+    if not user or not pwd:raise HTTPException(400,detail="SSH credentials not configured for this device")
+    # Pull system stats in one SSH session
+    cmd="""python3 -c "
+import json,os,subprocess
+try:
+    import psutil
+    cpu=psutil.cpu_percent(interval=1)
+    mem=psutil.virtual_memory()
+    disk=psutil.disk_usage('/')
+    try:temp=psutil.sensors_temperatures().get('cpu_thermal',[{}])[0].current if hasattr(psutil,'sensors_temperatures') else 0
+    except:temp=0
+    uptime=int((psutil.boot_time()))
+    print(json.dumps({'cpu':cpu,'memory':mem.percent,'disk':disk.percent,'temperature':temp,'total_ram_mb':round(mem.total/1048576),'used_ram_mb':round(mem.used/1048576),'total_disk_gb':round(disk.total/1073741824,1),'used_disk_gb':round(disk.used/1073741824,1),'boot_time':uptime,'hostname':os.uname().nodename,'ip':subprocess.getoutput('hostname -I').strip().split()[0] if subprocess.getoutput('hostname -I').strip() else '','online':True}))
+except Exception as e:
+    print(json.dumps({'error':str(e),'online':False}))
+" 2>/dev/null || echo '{"error":"psutil not installed","online":false}'"""
+    result=ssh_exec(ip,user,pwd,cmd)
+    try:
+        data=json.loads(result)
+        # Update device stats in DB
+        if data.get("online"):
+            db_exec("UPDATE istss_devices SET cpu_percent=%s,memory_percent=%s,temperature=%s,disk_percent=%s,status='online',last_heartbeat=NOW() WHERE id=%s",(data.get("cpu",0),data.get("memory",0),data.get("temperature",0),data.get("disk",0),id))
+        return {"device_id":id,"live":True,"stats":data}
+    except:
+        return {"device_id":id,"live":False,"raw":result,"error":"Could not parse device response"}
+
+@app.get("/api/v1/devices/{id}/logs")
+async def device_logs(id:str,lines:int=Query(50,ge=10,le=500),log_file:str=Query("syslog"),u:dict=Depends(auth)):
+    """SSH into device and pull log file contents"""
+    if not USE_PG:raise HTTPException(400,detail="DB required")
+    rows=db_exec("SELECT tailscale_ip,ssh_user,ssh_password FROM istss_devices WHERE id=%s",(id,),fetch=True)
+    if not rows or not rows[0].get("tailscale_ip"):raise HTTPException(404,detail="Device not found or no Tailscale IP configured")
+    d=rows[0];ip=d["tailscale_ip"];user=d["ssh_user"];pwd=d["ssh_password"]
+    if not user or not pwd:raise HTTPException(400,detail="SSH credentials not configured")
+    # Safe log file paths
+    safe_logs={"syslog":"/var/log/syslog","istss":"/home/*/istss*.log","traffic":"/home/*/traffic*.log","detection":"/home/*/detection*.log","signal":"/home/*/signal*.log","dmesg":"dmesg"}
+    log_path=safe_logs.get(log_file)
+    if not log_path:raise HTTPException(400,detail=f"Invalid log file. Valid: {', '.join(safe_logs.keys())}")
+    if log_file=="dmesg":
+        cmd=f"dmesg | tail -n {lines}"
+    else:
+        cmd=f"tail -n {lines} {log_path} 2>/dev/null || echo 'Log file not found: {log_path}'"
+    result=ssh_exec(ip,user,pwd,cmd,timeout=15)
+    return {"device_id":id,"log_file":log_file,"lines":lines,"content":result}
+
+@app.get("/api/v1/devices/{id}/processes")
+async def device_processes(id:str,u:dict=Depends(auth)):
+    """SSH into device and list running ISTSS-related processes"""
+    if not USE_PG:raise HTTPException(400,detail="DB required")
+    rows=db_exec("SELECT tailscale_ip,ssh_user,ssh_password FROM istss_devices WHERE id=%s",(id,),fetch=True)
+    if not rows or not rows[0].get("tailscale_ip"):raise HTTPException(404,detail="Device not found")
+    d=rows[0];ip=d["tailscale_ip"];user=d["ssh_user"];pwd=d["ssh_password"]
+    if not user or not pwd:raise HTTPException(400,detail="SSH credentials not configured")
+    cmd="ps aux | grep -E 'python|istss|traffic|detection|signal|camera' | grep -v grep"
+    result=ssh_exec(ip,user,pwd,cmd)
+    processes=[]
+    for line in result.strip().split("\n"):
+        if line.strip():
+            parts=line.split(None,10)
+            if len(parts)>=11:
+                processes.append({"user":parts[0],"pid":parts[1],"cpu":parts[2],"mem":parts[3],"command":parts[10]})
+    return {"device_id":id,"processes":processes,"raw":result}
 @app.post("/api/v1/devices/heartbeat",status_code=202)
 async def heartbeat(r:HeartbeatReq):
     if USE_PG:db_exec("UPDATE istss_devices SET cpu_percent=%s,memory_percent=%s,temperature=%s,disk_percent=%s,status=%s,last_heartbeat=NOW() WHERE id=%s",(r.cpu_percent,r.memory_percent,r.temperature,r.disk_percent,"online" if r.network_connected else "offline",r.device_id))

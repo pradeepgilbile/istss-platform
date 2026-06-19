@@ -89,6 +89,9 @@ const App=()=>{
   const[form,setForm]=useState({});
   const[editId,setEditId]=useState(null);
   const[msg,setMsg]=useState("");
+  const[liveStatus,setLiveStatus]=useState(null);
+  const[deviceLogs,setDeviceLogs]=useState(null);
+  const[liveLoading,setLiveLoading]=useState(false);
 
   // ─── Dynamic MC Authority Config (persisted in localStorage) ───
   const defaultMc={mc_name:"",mc_subtitle:"",mc_logo_url:"",officials:[
@@ -508,13 +511,14 @@ const App=()=>{
 {page==="devices"&&<div>
   <div className="form-card">
     <h3>{editId?"Edit Device":"Register New Device"}</h3>
-    <div className="form-grid form-grid-3" style={{alignItems:"end"}}>
+    <div className="form-grid form-grid-4" style={{alignItems:"end"}}>
       <FormField form={form} setForm={setForm} label="Device ID" field="device_id"/>
       <FormField form={form} setForm={setForm} label="Linked Chowk" field="chowk_id" opts={chowks.map(c=>c.id+":"+c.name)}/>
       <FormField form={form} setForm={setForm} label="Location" field="location"/>
       <FormField form={form} setForm={setForm} label="Network" field="network" opts={["Tailscale VPN","SIM / Cellular","LAN / Ethernet","Wi-Fi","LoRa"]}/>
       <FormField form={form} setForm={setForm} label="Tailscale IP" field="tailscale_ip"/>
       <FormField form={form} setForm={setForm} label="SSH User" field="ssh_user"/>
+      <FormField form={form} setForm={setForm} label="SSH Password" field="ssh_password" type="password"/>
       <FormField form={form} setForm={setForm} label="Status" field="status" opts={["online","offline","maintenance"]}/>
     </div>
     <div className="form-actions">
@@ -532,14 +536,60 @@ const App=()=>{
           <td>{d.network?<span className={`badge ${d.network?.includes("Tailscale")?"badge-info":"badge-success"}`} style={{textTransform:"none"}}>{d.network}</span>:"—"}</td>
           <td className="mono">{d.tailscale_ip||"—"}</td>
           <td><span className={`badge badge-${d.status==="online"?"success":d.status==="offline"?"danger":"warn"}`}>{d.status}</span></td>
-          <td>
-            <button onClick={()=>{setEditId(d.id);setForm({device_id:d.device_id,status:d.status,location:d.location||"",network:d.network||"",tailscale_ip:d.tailscale_ip||"",ssh_user:d.ssh_user||"",chowk_id:d.chowk_id?(d.chowk_id+":"+(linkedChowk?.name||"")):""});}} className="btn btn-primary btn-sm" style={{marginRight:6}}>Edit</button>
-            <button onClick={()=>crud("DELETE",`/api/v1/devices/${d.id}`)} className="btn btn-danger btn-sm">Delete</button>
+          <td style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+            {d.tailscale_ip&&<button onClick={async()=>{setLiveLoading(true);setLiveStatus(null);setDeviceLogs(null);try{const r=await api(`/api/v1/devices/${d.id}/live-status`);setLiveStatus(r);if(r.stats?.online)load();}catch(e){setLiveStatus({error:e.message});}finally{setLiveLoading(false);}}} className="btn btn-primary btn-sm">Live</button>}
+            {d.tailscale_ip&&<button onClick={async()=>{setLiveLoading(true);setDeviceLogs(null);try{const r=await api(`/api/v1/devices/${d.id}/logs?lines=100&log_file=syslog`);setDeviceLogs(r);}catch(e){setDeviceLogs({error:e.message});}finally{setLiveLoading(false);}}} className="btn btn-ghost btn-sm">Logs</button>}
+            <button onClick={()=>{setEditId(d.id);setForm({device_id:d.device_id,status:d.status,location:d.location||"",network:d.network||"",tailscale_ip:d.tailscale_ip||"",ssh_user:d.ssh_user||"",ssh_password:d.ssh_password||"",chowk_id:d.chowk_id?(d.chowk_id+":"+(linkedChowk?.name||"")):""});}} className="btn btn-primary btn-sm">Edit</button>
+            <button onClick={()=>crud("DELETE",`/api/v1/devices/${d.id}`)} className="btn btn-danger btn-sm">Del</button>
           </td>
         </tr>;})}
       </tbody>
     </table>
   </div>
+
+  {/* Live Status Panel */}
+  {liveLoading&&<div className="form-card" style={{marginTop:20,textAlign:"center",padding:32}}><p style={{color:"var(--text-tertiary)"}}>Connecting to device via Tailscale SSH...</p></div>}
+  {liveStatus&&!liveLoading&&<div className="form-card" style={{marginTop:20}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+      <h3 style={{margin:0}}>Live Device Status {liveStatus.live&&<span className="badge badge-success" style={{marginLeft:8}}>Connected</span>}</h3>
+      <button onClick={()=>setLiveStatus(null)} className="btn btn-ghost btn-sm">Close</button>
+    </div>
+    {liveStatus.error?<p style={{color:"var(--danger)"}}>{liveStatus.error}</p>:
+    liveStatus.stats&&<div>
+      <div className="kpi-grid" style={{marginBottom:16}}>
+        <KPI label="CPU Usage" value={`${(liveStatus.stats.cpu||0).toFixed(1)}%`} color="#3b82f6" emoji="🔲"/>
+        <KPI label="Memory" value={`${liveStatus.stats.used_ram_mb||0} / ${liveStatus.stats.total_ram_mb||0} MB`} color="#8b5cf6" emoji="💾"/>
+        <KPI label="Disk" value={`${liveStatus.stats.used_disk_gb||0} / ${liveStatus.stats.total_disk_gb||0} GB`} color="#10b981" emoji="💿"/>
+        <KPI label="Temperature" value={`${(liveStatus.stats.temperature||0).toFixed(1)}°C`} color={liveStatus.stats.temperature>70?"#f43f5e":"#f59e0b"} emoji="🌡️"/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,fontSize:13}}>
+        <div style={{padding:12,background:"var(--bg-surface-hover)",borderRadius:"var(--radius-md)"}}>
+          <span style={{color:"var(--text-tertiary)",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>Hostname</span>
+          <div style={{fontWeight:600,fontFamily:"'JetBrains Mono',monospace"}}>{liveStatus.stats.hostname||"—"}</div>
+        </div>
+        <div style={{padding:12,background:"var(--bg-surface-hover)",borderRadius:"var(--radius-md)"}}>
+          <span style={{color:"var(--text-tertiary)",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>Local IP</span>
+          <div style={{fontWeight:600,fontFamily:"'JetBrains Mono',monospace"}}>{liveStatus.stats.ip||"—"}</div>
+        </div>
+      </div>
+    </div>}
+  </div>}
+
+  {/* Device Logs Panel */}
+  {deviceLogs&&!liveLoading&&<div className="form-card" style={{marginTop:20}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+      <h3 style={{margin:0}}>Device Logs — {deviceLogs.log_file||"syslog"}</h3>
+      <div style={{display:"flex",gap:6}}>
+        {["syslog","istss","traffic","detection","dmesg"].map(lf=>
+          <button key={lf} onClick={async()=>{setLiveLoading(true);try{const r=await api(`/api/v1/devices/${deviceLogs.device_id}/logs?lines=100&log_file=${lf}`);setDeviceLogs(r);}catch(e){setDeviceLogs({error:e.message});}finally{setLiveLoading(false);}}} className="btn btn-ghost btn-sm" style={{textTransform:"capitalize"}}>{lf}</button>
+        )}
+        <button onClick={()=>setDeviceLogs(null)} className="btn btn-ghost btn-sm">Close</button>
+      </div>
+    </div>
+    {deviceLogs.error?<p style={{color:"var(--danger)"}}>{deviceLogs.error}</p>:
+    <pre style={{background:"var(--bg-inset)",padding:16,borderRadius:"var(--radius-md)",fontSize:11,fontFamily:"'JetBrains Mono',monospace",maxHeight:400,overflow:"auto",whiteSpace:"pre-wrap",wordBreak:"break-all",color:"var(--text-primary)",border:"1px solid var(--border-primary)",margin:0}}>{deviceLogs.content||"No log content"}</pre>}
+  </div>}
+
   {/* Device Health Monitor */}
   {devices.length>0&&<div className="form-card" style={{marginTop:20}}>
     <h3>Device Health Monitor</h3>

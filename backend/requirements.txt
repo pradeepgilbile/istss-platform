@@ -4,4 +4,3 @@ psycopg2-binary==2.9.9
 PyJWT==2.8.0
 pydantic[email]==2.7.0
 email-validator==2.1.1
-paramiko==3.4.0

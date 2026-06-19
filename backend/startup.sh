@@ -5,6 +5,9 @@
 
 echo "=== ISTSS API Startup ==="
 
+# Install sshpass for SSH password auth
+apt-get update -qq && apt-get install -y -qq sshpass > /dev/null 2>&1 || echo "sshpass may already be installed"
+
 # Install Tailscale if not present
 if ! command -v tailscale &> /dev/null; then
     echo "Installing Tailscale..."

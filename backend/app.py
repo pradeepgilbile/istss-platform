@@ -302,36 +302,25 @@ async def delete_device(id:str,u:dict=Depends(require_role("super_admin","city_a
     log_audit(u["sub"],"delete","devices",{"id":id});return {"message":"Deleted"}
 
 # --- DEVICE SSH LIVE STATUS ---
-def ssh_exec(ip,user,password,cmd,timeout=10):
-    """SSH into device, using Tailscale proxy for 100.x.x.x IPs when tailscaled is running"""
+def ssh_exec(ip,user,password,cmd,timeout=15):
+    """SSH into device using sshpass + ssh, with Tailscale proxy for 100.x IPs"""
     import subprocess as sp
+    ts_sock="/tmp/tailscale.sock"
+    ssh_opts=["-o","StrictHostKeyChecking=no","-o","UserKnownHostsFile=/dev/null","-o",f"ConnectTimeout={timeout}"]
+    # Use tailscale nc as ProxyCommand for Tailscale IPs
+    if os.path.exists(ts_sock) and ip.startswith("100."):
+        ssh_opts+=["-o",f"ProxyCommand=tailscale --socket={ts_sock} nc %h %p"]
     try:
-        import paramiko
-        client=paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        sock=None
-        ts_sock="/tmp/tailscale.sock"
-        # If Tailscale is running and target is a Tailscale IP, use tailscale nc as proxy
-        if os.path.exists(ts_sock) and ip.startswith("100."):
-            proc=sp.Popen(["tailscale","--socket="+ts_sock,"nc",ip,"22"],stdin=sp.PIPE,stdout=sp.PIPE,stderr=sp.PIPE)
-            # Create a socket-like wrapper for paramiko
-            class TSock:
-                def __init__(s,p):s._p=p;s._in=p.stdin;s._out=p.stdout
-                def send(s,d):s._in.write(d);s._in.flush();return len(d)
-                def recv(s,n):return s._out.read(n)
-                def close(s):
-                    try:s._p.terminate()
-                    except:pass
-                def settimeout(s,t):pass
-                def fileno(s):return s._out.fileno()
-            sock=TSock(proc)
-            client.connect(ip,port=22,username=user,password=password,timeout=timeout,sock=sock)
-        else:
-            client.connect(ip,port=22,username=user,password=password,timeout=timeout)
-        stdin,stdout,stderr=client.exec_command(cmd,timeout=timeout)
-        output=stdout.read().decode("utf-8","ignore").strip()
-        client.close()
-        return output
+        r=sp.run(["sshpass","-p",password,"ssh"]+ssh_opts+[f"{user}@{ip}",cmd],capture_output=True,text=True,timeout=timeout+5)
+        return r.stdout.strip() if r.returncode==0 else f"ERROR: {r.stderr.strip() or r.stdout.strip() or 'SSH failed'}"
+    except sp.TimeoutExpired:
+        return "ERROR: SSH connection timed out"
+    except FileNotFoundError:
+        # sshpass not installed, try without it (will fail for password auth but worth trying)
+        try:
+            r=sp.run(["ssh"]+ssh_opts+[f"{user}@{ip}",cmd],capture_output=True,text=True,timeout=timeout+5,input=password+"\n")
+            return r.stdout.strip() if r.returncode==0 else f"ERROR: {r.stderr.strip()}"
+        except:return "ERROR: sshpass not available, install with: apt-get install sshpass"
     except Exception as e:
         return f"ERROR: {str(e)}"
 

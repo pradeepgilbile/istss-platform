@@ -2,144 +2,33 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from "recharts";
 
 // ─── MOCK DATA ───────────────────────────────────────────────────────────────
-const CITIES = [
-  { id: "nanded", name: "Nanded", corporation: "Nanded Waghala City Municipal Corporation", police: "Nanded City Police", state: "Maharashtra", commissioner: "", cp: "" },
-  { id: "pcmc", name: "Pimpri-Chinchwad", corporation: "Pimpri-Chinchwad Municipal Corporation", police: "PCMC Traffic Police", state: "Maharashtra", commissioner: "", cp: "" },
-];
+const CITIES = [];
 
-const CHOWKS = {
-  nanded: [
-    { id: "mutha", name: "Mutha Chowk", lat: 19.1502, lng: 77.3159, status: "active", cameras: 4, rpiId: "RPI-NND-001", lastSync: "2 min ago", violations: 47, vehicles: 3420, signalPhase: "green", lanes: 4, paStatus: "active" },
-    { id: "vazirabad", name: "Vazirabad Chowk", lat: 19.1485, lng: 77.3211, status: "active", cameras: 3, rpiId: "RPI-NND-002", lastSync: "1 min ago", violations: 32, vehicles: 2890, signalPhase: "red", lanes: 4, paStatus: "active" },
-    { id: "jaikpura", name: "Jaikpura Gate", lat: 19.1520, lng: 77.3180, status: "active", cameras: 3, rpiId: "RPI-NND-003", lastSync: "5 min ago", violations: 28, vehicles: 2150, signalPhase: "green", lanes: 3, paStatus: "inactive" },
-    { id: "bengali", name: "Bengali Camp Signal", lat: 19.1445, lng: 77.3095, status: "warning", cameras: 2, rpiId: "RPI-NND-004", lastSync: "12 min ago", violations: 15, vehicles: 1780, signalPhase: "yellow", lanes: 2, paStatus: "offline" },
-  ],
-  pcmc: [
-    { id: "dapodi", name: "Dapodi Junction", lat: 18.5985, lng: 73.8325, status: "active", cameras: 4, rpiId: "RPI-PCMC-001", lastSync: "1 min ago", violations: 62, vehicles: 5210, signalPhase: "green", lanes: 6, paStatus: "active" },
-    { id: "kasarwadi", name: "Kasarwadi Chowk", lat: 18.6095, lng: 73.8280, status: "active", cameras: 3, rpiId: "RPI-PCMC-002", lastSync: "3 min ago", violations: 41, vehicles: 4120, signalPhase: "red", lanes: 4, paStatus: "active" },
-    { id: "nigdi", name: "Nigdi Chowk", lat: 18.6520, lng: 73.7690, status: "offline", cameras: 3, rpiId: "RPI-PCMC-003", lastSync: "45 min ago", violations: 8, vehicles: 890, signalPhase: "unknown", lanes: 4, paStatus: "offline" },
-  ],
-};
+const CHOWKS = {};
 
-const VIOLATION_TYPES = [
-  { type: "Red Light Jump", count: 87, color: "#ef4444", icon: "🚦" },
-  { type: "No Helmet", count: 134, color: "#f97316", icon: "⛑️" },
-  { type: "Triple Seat", count: 56, color: "#eab308", icon: "🏍️" },
-  { type: "Zebra Crossing", count: 42, color: "#8b5cf6", icon: "🚶" },
-  { type: "Wrong Lane", count: 31, color: "#06b6d4", icon: "🔄" },
-  { type: "No Parking", count: 24, color: "#a855f7", icon: "🅿️" },
-  { type: "Seat Belt", count: 19, color: "#14b8a6", icon: "🪢" },
-  { type: "Mobile Phone", count: 15, color: "#f43f5e", icon: "📱" },
-  { type: "Heavy Vehicle", count: 11, color: "#78716c", icon: "🚛" },
-  { type: "Overcrowding", count: 8, color: "#d946ef", icon: "👥" },
-  { type: "Emergency Block", count: 2, color: "#dc2626", icon: "🚑" },
-  { type: "Signal Tampering", count: 3, color: "#b91c1c", icon: "⚠️" },
-  { type: "Camera Offline", count: 5, color: "#6b7280", icon: "📵" },
-  { type: "Incident Detected", count: 4, color: "#f59e0b", icon: "💥" },
-  { type: "Unknown", count: 7, color: "#9ca3af", icon: "❓" },
-];
+const VIOLATION_TYPES = [];
 
-const VEHICLE_CLASSES = [
-  { type: "Two-Wheeler", count: 4820, pct: 38.2 },
-  { type: "Car/SUV", count: 3950, pct: 31.3 },
-  { type: "Auto-Rickshaw", count: 1680, pct: 13.3 },
-  { type: "Bus", count: 890, pct: 7.1 },
-  { type: "Truck/HCV", count: 720, pct: 5.7 },
-  { type: "Emergency", count: 42, pct: 0.3 },
-  { type: "Other", count: 518, pct: 4.1 },
-];
+const VEHICLE_CLASSES = [];
 
-const LANE_DATA = [
-  { lane: "Lane 1", vehicles: 3420, violations: 42 },
-  { lane: "Lane 2", vehicles: 2810, violations: 38 },
-  { lane: "Lane 3", vehicles: 2650, violations: 31 },
-  { lane: "Lane 4", vehicles: 1890, violations: 22 },
-  { lane: "Lane 5", vehicles: 980, violations: 14 },
-  { lane: "Lane 6", vehicles: 640, violations: 8 },
-];
+const LANE_DATA = [];
 
-const HOURLY_DATA = Array.from({ length: 24 }, (_, i) => ({
-  hour: `${i.toString().padStart(2, "0")}:00`,
-  vehicles: Math.round(200 + Math.sin((i - 6) * 0.4) * 400 + Math.random() * 100 + (i >= 8 && i <= 10 ? 600 : 0) + (i >= 17 && i <= 19 ? 500 : 0)),
-  violations: Math.round(5 + Math.sin((i - 6) * 0.4) * 15 + Math.random() * 8 + (i >= 8 && i <= 10 ? 20 : 0) + (i >= 17 && i <= 19 ? 18 : 0)),
-}));
+const HOURLY_DATA = [];
 
-const WEEKLY_DATA = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d, i) => ({
-  day: d,
-  violations: Math.round(200 + Math.random() * 120 + (i < 5 ? 80 : 0)),
-  vehicles: Math.round(8000 + Math.random() * 3000 + (i < 5 ? 2000 : 0)),
-}));
+const WEEKLY_DATA = [];
 
-const RECENT_VIOLATIONS = [
-  { id: "V-20260619-001", time: "14:32:18", chowk: "Mutha Chowk", type: "Red Light Jump", vehicle: "Two-Wheeler", plate: "MH-26-AB-4521", confidence: 94, status: "new", camera: "CAM-02", lane: 2, direction: "North", speed: "48 km/h" },
-  { id: "V-20260619-002", time: "14:28:45", chowk: "Vazirabad Chowk", type: "No Helmet", vehicle: "Two-Wheeler", plate: "MH-26-CD-7823", confidence: 91, status: "reviewed", camera: "CAM-01", lane: 1, direction: "East", speed: "32 km/h" },
-  { id: "V-20260619-003", time: "14:25:11", chowk: "Dapodi Junction", type: "Triple Seat", vehicle: "Two-Wheeler", plate: "MH-14-EF-1290", confidence: 88, status: "new", camera: "CAM-03", lane: 3, direction: "South", speed: "28 km/h" },
-  { id: "V-20260619-004", time: "14:22:03", chowk: "Jaikpura Gate", type: "Zebra Crossing", vehicle: "Car/SUV", plate: "MH-26-GH-5567", confidence: 86, status: "approved", camera: "CAM-01", lane: 1, direction: "West", speed: "22 km/h" },
-  { id: "V-20260619-005", time: "14:18:55", chowk: "Kasarwadi Chowk", type: "Wrong Lane", vehicle: "Auto-Rickshaw", plate: "MH-14-IJ-3344", confidence: 79, status: "new", camera: "CAM-02", lane: 4, direction: "North", speed: "35 km/h" },
-  { id: "V-20260619-006", time: "14:15:30", chowk: "Bengali Camp Signal", type: "No Helmet", vehicle: "Two-Wheeler", plate: "MH-26-KL-8890", confidence: 92, status: "reviewed", camera: "CAM-01", lane: 2, direction: "East", speed: "40 km/h" },
-  { id: "V-20260619-007", time: "14:12:22", chowk: "Mutha Chowk", type: "Red Light Jump", vehicle: "Car/SUV", plate: "MH-26-MN-2211", confidence: 97, status: "challan-ready", camera: "CAM-04", lane: 1, direction: "South", speed: "52 km/h" },
-  { id: "V-20260619-008", time: "14:08:40", chowk: "Vazirabad Chowk", type: "Signal Tampering", vehicle: "—", plate: "—", confidence: 82, status: "new", camera: "CAM-02", lane: 0, direction: "—", speed: "—" },
-  { id: "V-20260619-009", time: "14:05:12", chowk: "Dapodi Junction", type: "Mobile Phone", vehicle: "Car/SUV", plate: "MH-14-PQ-6677", confidence: 85, status: "new", camera: "CAM-01", lane: 2, direction: "West", speed: "45 km/h" },
-  { id: "V-20260619-010", time: "14:01:33", chowk: "Mutha Chowk", type: "Seat Belt", vehicle: "Car/SUV", plate: "MH-26-RS-9988", confidence: 90, status: "new", camera: "CAM-03", lane: 3, direction: "North", speed: "38 km/h" },
-  { id: "V-20260619-011", time: "13:58:08", chowk: "Kasarwadi Chowk", type: "No Parking", vehicle: "Car/SUV", plate: "MH-14-TU-1122", confidence: 93, status: "approved", camera: "CAM-02", lane: 0, direction: "—", speed: "0 km/h" },
-  { id: "V-20260619-012", time: "13:55:44", chowk: "Jaikpura Gate", type: "Heavy Vehicle", vehicle: "Truck/HCV", plate: "MH-26-VW-3344", confidence: 96, status: "reviewed", camera: "CAM-03", lane: 1, direction: "South", speed: "25 km/h" },
-];
+const RECENT_VIOLATIONS = [];
 
-const ALERTS = [
-  { id: 1, msg: "Camera 2 offline at Bengali Camp Signal — last heartbeat 12 min ago", priority: "critical", time: "14:30", read: false, category: "device" },
-  { id: 2, msg: "High red-light violations at Mutha Chowk — 47 today (threshold: 30)", priority: "warning", time: "14:25", read: false, category: "violation" },
-  { id: 3, msg: "Emergency vehicle priority triggered at Vazirabad Chowk", priority: "info", time: "14:20", read: true, category: "signal" },
-  { id: 4, msg: "RPI-NND-004 Bengali Camp heartbeat delayed > 10 minutes", priority: "warning", time: "14:18", read: false, category: "device" },
-  { id: 5, msg: "Nigdi Chowk RPI back online after scheduled maintenance", priority: "info", time: "13:45", read: true, category: "device" },
-  { id: 6, msg: "Signal tampering detected at Vazirabad Chowk — immediate inspection required", priority: "critical", time: "13:30", read: false, category: "signal" },
-  { id: 7, msg: "PA system offline at Jaikpura Gate", priority: "warning", time: "13:15", read: true, category: "device" },
-  { id: 8, msg: "Daily violation threshold crossed — 350+ violations across city", priority: "warning", time: "12:45", read: true, category: "violation" },
-  { id: 9, msg: "New user registration: Rajesh Patil (Nanded Traffic Police) awaiting approval", priority: "info", time: "12:00", read: true, category: "admin" },
-  { id: 10, msg: "Dapodi Junction peak hour — 62 violations in last 4 hours", priority: "warning", time: "11:30", read: true, category: "violation" },
-];
+const ALERTS = [];
 
-const PA_ANNOUNCEMENTS = [
-  { id: 1, time: "14:30:12", chowk: "Mutha Chowk", message: "Red light violation detected. Please obey traffic signals.", lang: "Hindi", triggered: "auto" },
-  { id: 2, time: "14:25:05", chowk: "Vazirabad Chowk", message: "Helmet mandatory for two-wheeler riders. Your safety matters.", lang: "Marathi", triggered: "auto" },
-  { id: 3, time: "14:18:33", chowk: "Dapodi Junction", message: "Zebra crossing violation. Give way to pedestrians.", lang: "Hindi", triggered: "auto" },
-  { id: 4, time: "14:10:00", chowk: "Mutha Chowk", message: "Emergency vehicle approaching. Please clear the way immediately.", lang: "Hindi", triggered: "auto" },
-  { id: 5, time: "13:45:22", chowk: "Kasarwadi Chowk", message: "Triple riding detected. Follow traffic rules for your safety.", lang: "Marathi", triggered: "auto" },
-  { id: 6, time: "13:30:00", chowk: "All Chowks", message: "Reminder: Follow lane discipline. Heavy penalty for violations.", lang: "Hindi", triggered: "manual" },
-];
+const PA_ANNOUNCEMENTS = [];
 
-const MARQUEE_MSGS = [
-  "🚨 High red-light violation count at Mutha Chowk — 47 today",
-  "📡 Camera 2 offline at Bengali Camp Signal",
-  "🚑 Emergency vehicle priority active at Vazirabad Chowk",
-  "📊 Today's total violations: 353 across 7 chowks",
-  "✅ All PCMC corridor RPIs reporting healthy",
-  "⚠️ Signal tampering alert — Vazirabad Chowk",
-];
+const MARQUEE_MSGS = ["ISTSS Platform Ready — Waiting for device data"];
 
-const PENDING_USERS = [
-  { id: 1, name: "Rajesh Patil", email: "rajesh.patil@nandedpolice.gov.in", mobile: "+91 98765 43210", city: "Nanded", dept: "Traffic Police", designation: "Sub Inspector", role: "Traffic Police User", date: "2026-06-18" },
-  { id: 2, name: "Amit Jadhav", email: "amit.jadhav@pcmc.gov.in", mobile: "+91 87654 32109", city: "Pimpri-Chinchwad", dept: "PCMC Traffic", designation: "Inspector", role: "City Admin", date: "2026-06-17" },
-  { id: 3, name: "Sneha Kulkarni", email: "sneha.k@nwcmc.gov.in", mobile: "+91 76543 21098", city: "Nanded", dept: "Municipal Corporation", designation: "Executive Engineer", role: "Viewer", date: "2026-06-16" },
-];
+const PENDING_USERS = [];
 
-const DEVICE_HEALTH = [
-  { id: "RPI-NND-001", chowk: "Mutha Chowk", city: "nanded", cpu: 42, mem: 61, temp: 52, disk: 34, uptime: "14d 6h", status: "healthy", cameras: [{ id: "CAM-01", status: "online" }, { id: "CAM-02", status: "online" }, { id: "CAM-03", status: "online" }, { id: "CAM-04", status: "online" }] },
-  { id: "RPI-NND-002", chowk: "Vazirabad Chowk", city: "nanded", cpu: 38, mem: 55, temp: 49, disk: 28, uptime: "14d 6h", status: "healthy", cameras: [{ id: "CAM-01", status: "online" }, { id: "CAM-02", status: "online" }, { id: "CAM-03", status: "online" }] },
-  { id: "RPI-NND-003", chowk: "Jaikpura Gate", city: "nanded", cpu: 67, mem: 78, temp: 61, disk: 45, uptime: "7d 2h", status: "warning", cameras: [{ id: "CAM-01", status: "online" }, { id: "CAM-02", status: "degraded" }, { id: "CAM-03", status: "online" }] },
-  { id: "RPI-NND-004", chowk: "Bengali Camp Signal", city: "nanded", cpu: 0, mem: 0, temp: 0, disk: 0, uptime: "—", status: "offline", cameras: [{ id: "CAM-01", status: "offline" }, { id: "CAM-02", status: "offline" }] },
-  { id: "RPI-PCMC-001", chowk: "Dapodi Junction", city: "pcmc", cpu: 35, mem: 48, temp: 47, disk: 22, uptime: "21d 0h", status: "healthy", cameras: [{ id: "CAM-01", status: "online" }, { id: "CAM-02", status: "online" }, { id: "CAM-03", status: "online" }, { id: "CAM-04", status: "online" }] },
-  { id: "RPI-PCMC-002", chowk: "Kasarwadi Chowk", city: "pcmc", cpu: 44, mem: 52, temp: 50, disk: 31, uptime: "21d 0h", status: "healthy", cameras: [{ id: "CAM-01", status: "online" }, { id: "CAM-02", status: "online" }, { id: "CAM-03", status: "online" }] },
-  { id: "RPI-PCMC-003", chowk: "Nigdi Chowk", city: "pcmc", cpu: 0, mem: 0, temp: 0, disk: 0, uptime: "—", status: "offline", cameras: [{ id: "CAM-01", status: "offline" }, { id: "CAM-02", status: "offline" }, { id: "CAM-03", status: "offline" }] },
-];
+const DEVICE_HEALTH = [];
 
-const AUDIT_LOG = [
-  { id: 1, timestamp: "2026-06-19 14:30:22", user: "admin@datamorphosis.in", action: "User approved", target: "rajesh.patil@nandedpolice.gov.in", ip: "103.21.XX.XX" },
-  { id: 2, timestamp: "2026-06-19 13:15:10", user: "admin@datamorphosis.in", action: "City branding updated", target: "Nanded", ip: "103.21.XX.XX" },
-  { id: 3, timestamp: "2026-06-19 12:45:03", user: "system", action: "Threshold alert triggered", target: "Daily violation count > 350", ip: "—" },
-  { id: 4, timestamp: "2026-06-19 11:00:00", user: "admin@datamorphosis.in", action: "Device registered", target: "RPI-PCMC-003", ip: "103.21.XX.XX" },
-  { id: 5, timestamp: "2026-06-18 16:30:00", user: "admin@datamorphosis.in", action: "User rejected", target: "unknown@test.com", ip: "103.21.XX.XX" },
-  { id: 6, timestamp: "2026-06-18 10:00:00", user: "system", action: "Login", target: "admin@datamorphosis.in", ip: "103.21.XX.XX" },
-];
+const AUDIT_LOG = [];
 
 const PIE_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#6b7280"];
 
@@ -257,7 +146,7 @@ function RegistrationScreen({ onBack }) {
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0F172A 0%, #1E293B 50%, #334155 100%)", fontFamily: "'Inter', system-ui, sans-serif", padding: 20 }}>
       <div style={{ width: 480, padding: 36, borderRadius: 16, background: "rgba(17,24,39,0.85)", border: "1px solid rgba(255,255,255,0.08)", maxHeight: "90vh", overflowY: "auto" }}>
         <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <img src="/logo.svg" alt="Datamorphosis" style={{ width: 80, height: 64, marginBottom: 8, filter: "drop-shadow(0 4px 12px rgba(37,99,235,0.3))" }} />
+          <img src="/logo.svg" alt="DM" style={{ width: 80, height: 64, marginBottom: 8 }} />
           <h1 style={{ color: "#f8fafc", fontSize: 18, fontWeight: 700, margin: "0 0 4px" }}>Register for Access</h1>
           <p style={{ color: "#64748b", fontSize: 12, margin: 0 }}>Your registration will be reviewed by the Super Admin</p>
         </div>
@@ -293,7 +182,7 @@ function ForgotPasswordScreen({ onBack }) {
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0F172A 0%, #1E293B 50%, #334155 100%)", fontFamily: "'Inter', system-ui, sans-serif" }}>
       <div style={{ width: 400, padding: 40, borderRadius: 16, background: "rgba(17,24,39,0.85)", border: "1px solid rgba(255,255,255,0.08)" }}>
         <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <img src="/logo.svg" alt="Datamorphosis" style={{ width: 80, height: 64, marginBottom: 8, filter: "drop-shadow(0 4px 12px rgba(37,99,235,0.3))" }} />
+          <img src="/logo.svg" alt="DM" style={{ width: 80, height: 64, marginBottom: 8 }} />
           <h1 style={{ color: "#f8fafc", fontSize: 18, fontWeight: 700, margin: "0 0 6px" }}>{sent ? "Check Your Email" : "Reset Password"}</h1>
           <p style={{ color: "#64748b", fontSize: 12, margin: 0 }}>{sent ? "A password reset link has been sent to your registered email." : "Enter your registered email to receive a reset link."}</p>
         </div>
@@ -481,7 +370,7 @@ function ChowkDetailView({ chowk, onBack, dark }) {
         <>
           {/* KPI Cards */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 16 }}>
-            <KPICard label="Vehicles" value={chowk.vehicles.toLocaleString()} icon="🚗" />
+            <KPICard label="Vehicles" value={chowk.(vehicles || 0).toLocaleString()} icon="🚗" />
             <KPICard label="Violations" value={chowk.violations} icon="⚠️" color="#ef4444" />
             <KPICard label="Cameras" value={chowk.cameras} icon="📷" />
             <KPICard label="Lanes" value={chowk.lanes} icon="🛣️" />
@@ -855,7 +744,7 @@ export default function App() {
   const [screen, setScreen] = useState("login");
   const [page, setPage] = useState("dashboard");
   const [dark, setDark] = useState(false);
-  const [selectedCity, setSelectedCity] = useState("nanded");
+  const [selectedCity, setSelectedCity] = useState("");
   const [selectedChowk, setSelectedChowk] = useState(null);
   const [showAlerts, setShowAlerts] = useState(false);
   const [marqueePos, setMarqueePos] = useState(0);
@@ -872,8 +761,8 @@ export default function App() {
     return () => clearInterval(iv);
   }, []);
 
-  const city = CITIES.find(c => c.id === selectedCity);
-  const chowks = CHOWKS[selectedCity] || [];
+  const city = (CITIES.find(c => c.id === selectedCity) || { name: "", corporation: "No Corporation Configured", police: "No Police Unit", state: "", commissioner: "", cp: "" });
+  const chowks = (CHOWKS[selectedCity] || []) || [];
   const totalVehicles = chowks.reduce((s, c) => s + c.vehicles, 0) + liveCounter * 3;
   const totalViolations = chowks.reduce((s, c) => s + c.violations, 0);
   const onlineDevices = chowks.filter(c => c.status === "active").length;
@@ -898,7 +787,7 @@ export default function App() {
     { id: "admin", label: "Admin", icon: "⚙️" },
   ];
 
-  const unreadAlerts = ALERTS.filter(a => !a.read).length;
+  const unreadAlerts = 0;
 
   return (
     <div style={{ ...themeVars, minHeight: "100vh", background: "var(--bg)", fontFamily: "'Inter', system-ui, sans-serif", display: "flex", color: "var(--text)" }}>
@@ -911,10 +800,7 @@ export default function App() {
           <div style={{ fontSize: 9, color: "var(--accent)", textAlign: "center", marginTop: 4, letterSpacing: 0.5, textTransform: "uppercase" }}>Datamorphosis Technologies</div>
         </div>
         <div style={{ padding: "0 12px 10px" }}>
-          <select value={selectedCity} onChange={e => { setSelectedCity(e.target.value); setSelectedChowk(null); setPage("dashboard"); }}
-            style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", fontSize: 12, outline: "none" }}>
-            {CITIES.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <div style={{ padding: "8px 12px", borderRadius: 6, background: dark ? "#1E293B" : "#F1F5F9", color: "var(--muted)", fontSize: 12, border: "1px solid var(--border)" }}>No city configured</div>
         </div>
         <nav style={{ flex: 1, padding: "0 8px", overflowY: "auto" }}>
           {navItems.map(n => (
@@ -946,7 +832,7 @@ export default function App() {
         <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 24px", borderBottom: "1px solid var(--border)", background: "var(--card)", position: "sticky", top: 0, zIndex: 100 }}>
           <div style={{ flex: 1, overflow: "hidden", marginRight: 16 }}>
             <div style={{ fontSize: 12, color: "#f59e0b", fontWeight: 500, whiteSpace: "nowrap", animation: "none" }}>
-              {MARQUEE_MSGS[marqueePos]}
+              {(MARQUEE_MSGS[marqueePos] || "")}
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
@@ -999,7 +885,7 @@ export default function App() {
                     <StatusDot status={c.status} />
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{c.name}</div>
-                      <div style={{ fontSize: 11, color: "var(--muted)" }}>{c.vehicles.toLocaleString()} vehicles • {c.violations} violations</div>
+                      <div style={{ fontSize: 11, color: "var(--muted)" }}>{c.(vehicles || 0).toLocaleString()} vehicles • {c.violations} violations</div>
                     </div>
                   </div>
                 ))}
@@ -1069,7 +955,7 @@ export default function App() {
                       <SignalIndicator phase={c.signalPhase} />
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
-                      <div><span style={{ color: "var(--muted)" }}>Vehicles:</span> <span style={{ color: "var(--text)", fontWeight: 600 }}>{c.vehicles.toLocaleString()}</span></div>
+                      <div><span style={{ color: "var(--muted)" }}>Vehicles:</span> <span style={{ color: "var(--text)", fontWeight: 600 }}>{c.(vehicles || 0).toLocaleString()}</span></div>
                       <div><span style={{ color: "var(--muted)" }}>Violations:</span> <span style={{ color: "#ef4444", fontWeight: 600 }}>{c.violations}</span></div>
                       <div><span style={{ color: "var(--muted)" }}>Cameras:</span> <span style={{ color: "var(--text)" }}>{c.cameras}</span></div>
                       <div><span style={{ color: "var(--muted)" }}>Lanes:</span> <span style={{ color: "var(--text)" }}>{c.lanes}</span></div>
@@ -1299,7 +1185,7 @@ export default function App() {
                           <StatusDot status={c.status} />
                           <div>
                             <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{c.name}</div>
-                            <div style={{ fontSize: 11, color: "var(--muted)" }}>{c.vehicles.toLocaleString()} vehicles • {c.violations} violations</div>
+                            <div style={{ fontSize: 11, color: "var(--muted)" }}>{c.(vehicles || 0).toLocaleString()} vehicles • {c.violations} violations</div>
                           </div>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

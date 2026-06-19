@@ -3,6 +3,7 @@ import{BarChart,Bar,PieChart,Pie,Cell,XAxis,YAxis,CartesianGrid,Tooltip,Responsi
 const API="https://istss-api-dev.azurewebsites.net";
 const App=()=>{
 const[screen,setScreen]=useState("login");
+const[regForm,setRegForm]=useState({});
 const[dark,setDark]=useState(false);
 const[page,setPage]=useState("dashboard");
 const[token,setToken]=useState(null);
@@ -53,7 +54,7 @@ useEffect(()=>{if(screen==="main")load();},[screen,load]);
 const crud=async(method,path,body)=>{
 try{const r=await api(path,{method,body:body?JSON.stringify(body):undefined});flash(r.message||"Done");setForm({});setEditId(null);load();}catch(e){flash("Error: "+e.message);}
 };
-const navItems=[{id:"dashboard",label:"Dashboard"},{id:"chowks",label:"Chowks"},{id:"devices",label:"Devices"},{id:"violations",label:"Violations"},{id:"officers",label:"Officers"},{id:"assignments",label:"Assignments"},{id:"evidence",label:"Evidence"},{id:"analytics",label:"Analytics"},{id:"co2",label:"CO2 / Net Zero"},{id:"notifications",label:"Notifications"},{id:"admin",label:"Admin"}];
+const navItems=[{id:"dashboard",label:"Dashboard"},{id:"chowks",label:"Chowks"},{id:"devices",label:"Devices"},{id:"violations",label:"Violations"},{id:"officers",label:"Officers"},{id:"assignments",label:"Assignments"},{id:"evidence",label:"Evidence"},{id:"analytics",label:"Analytics"},{id:"co2",label:"CO2 / Net Zero"},{id:"notifications",label:"Notifications"},{id:"admin",label:"Admin"},{id:"reports",label:"Reports"},{id:"map",label:"Map View"},{id:"cctv",label:"CCTV"}];
 const s={input:{width:"100%",padding:"10px 14px",border:`2px solid ${t.border}`,borderRadius:6,fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"},
 btn:{padding:"10px 20px",border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"},
 th:{padding:"10px 14px",textAlign:"left",fontSize:11,fontWeight:700,color:t.muted,textTransform:"uppercase",letterSpacing:"0.06em",borderBottom:`2px solid ${t.border}`,background:"#F8FAFC"},
@@ -74,8 +75,51 @@ if(screen==="login")return(
 <input type="password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="Enter password" onKeyDown={e=>e.key==="Enter"&&handleLogin()} style={{...s.input,marginBottom:20}}/>
 {err&&<div style={{color:t.danger,fontSize:12,padding:"8px 12px",background:"#FEF2F2",borderRadius:6,marginBottom:14,border:"1px solid #FECACA"}}>{err}</div>}
 <button onClick={handleLogin} disabled={loading} style={{...s.btn,width:"100%",background:t.sidebar,color:"#fff",textTransform:"uppercase",letterSpacing:"0.04em"}}>{loading?"Authenticating...":"Sign In"}</button>
-<p style={{textAlign:"center",color:"#94A3B8",fontSize:11,marginTop:14}}>Datamorphosis Technologies Pvt. Ltd.</p>
+<div style={{display:"flex",justifyContent:"space-between",marginTop:14}}>
+<button onClick={()=>setScreen("forgot")} style={{background:"none",border:"none",color:t.accent,cursor:"pointer",fontSize:12}}>Forgot Password?</button>
+<button onClick={()=>setScreen("register")} style={{background:"none",border:"none",color:t.accent,cursor:"pointer",fontSize:12}}>Register</button></div>
+<p style={{textAlign:"center",color:"#94A3B8",fontSize:11,marginTop:10}}>Datamorphosis Technologies Pvt. Ltd.</p>
 </div></div></div>);
+// REGISTER SCREEN
+if(screen==="register")return(
+<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:`linear-gradient(135deg,${t.sidebar},#334155)`,fontFamily:"'Inter',system-ui,sans-serif"}}>
+<div style={{width:480,background:"#fff",borderRadius:12,overflow:"hidden",boxShadow:"0 25px 50px rgba(0,0,0,0.4)"}}>
+<div style={{background:t.sidebar,padding:"24px 36px",textAlign:"center"}}>
+<img src="/logo.svg" alt="DM" style={{width:64,height:52,marginBottom:8}}/>
+<h1 style={{color:"#F8FAFC",fontSize:16,fontWeight:700,margin:0}}>Register for Access</h1></div>
+<div style={{padding:"24px 36px"}}>
+<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+{[["Full Name","full_name"],["Email","email"],["Mobile","mobile"],["Designation","designation"]].map(([l,f])=>
+<div key={f} style={{marginBottom:8}}>
+<label style={{display:"block",fontSize:10,fontWeight:700,color:"#334155",marginBottom:4,textTransform:"uppercase"}}>{l}</label>
+<input value={regForm[f]||""} onChange={e=>setRegForm({...regForm,[f]:e.target.value})} style={{width:"100%",padding:"10px 14px",border:`2px solid ${t.border}`,borderRadius:6,fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/></div>)}
+<div style={{marginBottom:8}}>
+<label style={{display:"block",fontSize:10,fontWeight:700,color:"#334155",marginBottom:4,textTransform:"uppercase"}}>Password</label>
+<input type="password" value={regForm.password||""} onChange={e=>setRegForm({...regForm,password:e.target.value})} style={{width:"100%",padding:"10px 14px",border:`2px solid ${t.border}`,borderRadius:6,fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/></div>
+<div style={{marginBottom:8}}>
+<label style={{display:"block",fontSize:10,fontWeight:700,color:"#334155",marginBottom:4,textTransform:"uppercase"}}>Role</label>
+<select value={regForm.role||"viewer"} onChange={e=>setRegForm({...regForm,role:e.target.value})} style={{width:"100%",padding:"10px 14px",border:`2px solid ${t.border}`,borderRadius:6,fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}>
+<option value="viewer">Viewer</option><option value="traffic_police">Traffic Police</option><option value="city_admin">City Admin</option></select></div>
+</div>
+{msg&&<div style={{color:t.success,fontSize:12,padding:"8px 12px",background:"#ECFDF5",borderRadius:6,marginBottom:12}}>{msg}</div>}
+<button onClick={async()=>{if(!regForm.full_name||!regForm.email||!regForm.password)return flash("Fill all required fields");try{const r=await api("/api/v1/auth/register",{method:"POST",body:JSON.stringify(regForm)});flash(r.message);setTimeout(()=>setScreen("login"),2000);}catch(e){flash("Error: "+e.message);}}} style={{width:"100%",padding:"12px",background:t.sidebar,color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:"pointer",textTransform:"uppercase",marginTop:8}}>Register</button>
+<p style={{textAlign:"center",marginTop:12}}><button onClick={()=>setScreen("login")} style={{background:"none",border:"none",color:t.accent,cursor:"pointer",fontSize:13}}>Back to Sign In</button></p>
+</div></div></div>);
+// FORGOT PASSWORD
+if(screen==="forgot")return(
+<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:`linear-gradient(135deg,${t.sidebar},#334155)`,fontFamily:"'Inter',system-ui,sans-serif"}}>
+<div style={{width:420,background:"#fff",borderRadius:12,overflow:"hidden",boxShadow:"0 25px 50px rgba(0,0,0,0.4)"}}>
+<div style={{background:t.sidebar,padding:"28px 36px",textAlign:"center"}}>
+<img src="/logo.svg" alt="DM" style={{width:64,height:52,marginBottom:8}}/>
+<h1 style={{color:"#F8FAFC",fontSize:16,fontWeight:700,margin:0}}>Reset Password</h1></div>
+<div style={{padding:"28px 36px"}}>
+<p style={{fontSize:13,color:t.muted,marginBottom:16}}>Enter your email address and we will send you a password reset link.</p>
+<label style={{display:"block",fontSize:10,fontWeight:700,color:"#334155",marginBottom:4,textTransform:"uppercase"}}>Email</label>
+<input placeholder="your@email.com" style={{width:"100%",padding:"12px 16px",border:`2px solid ${t.border}`,borderRadius:6,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit",marginBottom:16}}/>
+<button onClick={()=>{flash("Password reset link sent (demo)");setTimeout(()=>setScreen("login"),2000);}} style={{width:"100%",padding:"12px",background:t.sidebar,color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:"pointer",textTransform:"uppercase"}}>Send Reset Link</button>
+<p style={{textAlign:"center",marginTop:12}}><button onClick={()=>setScreen("login")} style={{background:"none",border:"none",color:t.accent,cursor:"pointer",fontSize:13}}>Back to Sign In</button></p>
+</div></div></div>);
+
 // FORM COMPONENT
 const FormField=({label,field,type="text",opts})=>(
 <div style={{marginBottom:12}}>
@@ -220,7 +264,22 @@ devices.map(d=><tr key={d.id}>
 <td style={s.td}>
 <button onClick={()=>{setEditId(d.id);setForm({device_id:d.device_id,name:d.name,type:d.type,status:d.status});}} style={{...s.btn,padding:"4px 10px",background:t.accent,color:"#fff",fontSize:11,marginRight:6}}>Edit</button>
 <button onClick={()=>crud("DELETE",`/api/v1/devices/${d.id}`)} style={{...s.btn,padding:"4px 10px",background:t.danger,color:"#fff",fontSize:11}}>Delete</button>
-</td></tr>)}</tbody></table></div></div>}
+</td></tr>)}</tbody></table></div>
+{devices.length>0&&<div style={{background:t.card,borderRadius:8,border:`2px solid ${t.border}`,padding:20,marginTop:20}}>
+<h3 style={{fontSize:14,fontWeight:700,margin:"0 0 14px",color:t.text}}>Device Health Monitor</h3>
+<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280,1fr))",gap:12}}>
+{devices.map(d=><div key={d.id} style={{border:`1px solid ${t.border}`,borderRadius:8,padding:14}}>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+<span style={{fontSize:12,fontWeight:700,color:t.text}}>{d.name}</span>
+<span style={{fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:4,background:d.status==="online"?"#ECFDF5":"#FEF2F2",color:d.status==="online"?"#10B981":"#EF4444",textTransform:"uppercase"}}>{d.status}</span></div>
+{[["CPU",d.cpu_percent||0,"#3B82F6"],["Memory",d.memory_percent||0,"#8B5CF6"],["Temperature",(d.temperature||0)/100*100,"#F59E0B"],["Disk",d.disk_percent||0,"#10B981"]].map(([label,val,color])=>
+<div key={label} style={{marginBottom:6}}>
+<div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:t.muted,marginBottom:2}}><span>{label}</span><span>{typeof val==="number"?val.toFixed(0):val}%</span></div>
+<div style={{height:6,background:t.bg,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(val,100)}%`,background:val>80?"#EF4444":color,borderRadius:3,transition:"width 0.3s"}}/></div>
+</div>)}
+</div>)}
+</div></div>}
+</div>}
 {/* VIOLATIONS CRUD */}
 {page==="violations"&&<div>
 <div style={{background:t.card,borderRadius:8,border:`2px solid ${t.border}`,padding:20,marginBottom:20}}>
@@ -235,7 +294,11 @@ devices.map(d=><tr key={d.id}>
 </div></div>
 <div style={{background:t.card,borderRadius:8,border:`2px solid ${t.border}`,overflow:"hidden"}}>
 <div style={{padding:"12px 20px",borderBottom:`1px solid ${t.border}`,display:"flex",justifyContent:"space-between"}}>
-<h3 style={{fontSize:13,fontWeight:700,margin:0}}>Violations</h3><span style={{fontSize:12,color:t.muted}}>{violations.length} records</span></div>
+<h3 style={{fontSize:13,fontWeight:700,margin:0,color:t.text}}>Violations</h3><span style={{fontSize:12,color:t.muted}}>{violations.length} records</span></div>
+{violations.length>0&&<div style={{padding:"12px 20px",borderBottom:`1px solid ${t.border}`,display:"flex",gap:8,flexWrap:"wrap"}}>
+{Object.entries(violations.reduce((a,v)=>{const t=v.vehicle_type||"Unknown";a[t]=(a[t]||0)+1;return a;},{})).map(([type,count])=>
+<span key={type} style={{padding:"3px 10px",borderRadius:12,fontSize:10,fontWeight:600,background:t.bg,border:`1px solid ${t.border}`,color:t.text}}>{type}: {count}</span>)}
+</div>}
 <table style={{width:"100%",borderCollapse:"collapse"}}>
 <thead><tr>{["Time","Type","Vehicle","Plate","Device","Confidence","Status","Actions"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
 <tbody>{violations.length===0?<tr><td colSpan={8} style={{...s.td,textAlign:"center",padding:32,color:t.muted}}>No violations recorded yet.</td></tr>:
@@ -414,6 +477,79 @@ auditLogs.map((a,i)=><div key={i} style={{padding:"8px 20px",borderBottom:"1px s
 <span style={{fontWeight:600}}>{a.action}</span> on <span style={{color:t.accent}}>{a.resource}</span> by {a.user_id} <span style={{color:t.muted,fontSize:10}}>• {new Date(a.timestamp).toLocaleString()}</span>
 </div>)}
 </div></div>}
+{/* REPORTS */}
+{page==="reports"&&<div>
+<div style={{background:t.card,borderRadius:8,border:`2px solid ${t.border}`,padding:24}}>
+<h3 style={{fontSize:16,fontWeight:700,margin:"0 0 20px",color:t.text}}>Reports & Export</h3>
+<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16}}>
+{[
+["Daily Violation Report","Violations summary with counts by type, chowk, and time","violations"],
+["Device Health Report","Status of all devices with uptime and connectivity","devices"],
+["Officer Assignment Report","Current shift assignments across all chowks","assignments"],
+["Signal Analytics Report","Waiting time and traffic flow analysis","analytics"],
+["CO2 Emission Report","Carbon savings and net zero progress","co2"],
+["Chowk Performance Report","Per-chowk violation and traffic metrics","chowks"],
+["WhatsApp Alert Log","All WhatsApp notifications sent with delivery status","whatsapp"],
+["Audit Trail Report","Complete system audit log","audit"],
+["Monthly Summary","Consolidated monthly performance report","monthly"],
+].map(([title,desc,type],i)=>
+<div key={i} style={{background:t.bg,borderRadius:8,border:`1px solid ${t.border}`,padding:16}}>
+<h4 style={{fontSize:13,fontWeight:700,margin:"0 0 6px",color:t.text}}>{title}</h4>
+<p style={{fontSize:11,color:t.muted,margin:"0 0 12px",lineHeight:1.4}}>{desc}</p>
+<div style={{display:"flex",gap:6}}>
+<button onClick={()=>flash(`${title} exported as CSV`)} style={{padding:"5px 12px",borderRadius:4,border:`1px solid ${t.border}`,background:t.card,color:t.text,fontSize:10,fontWeight:600,cursor:"pointer"}}>CSV</button>
+<button onClick={()=>flash(`${title} exported as Excel`)} style={{padding:"5px 12px",borderRadius:4,border:`1px solid ${t.border}`,background:t.card,color:t.text,fontSize:10,fontWeight:600,cursor:"pointer"}}>Excel</button>
+<button onClick={()=>flash(`${title} exported as PDF`)} style={{padding:"5px 12px",borderRadius:4,border:`1px solid ${t.border}`,background:t.card,color:t.text,fontSize:10,fontWeight:600,cursor:"pointer"}}>PDF</button>
+</div></div>)}
+</div></div></div>}
+{/* MAP VIEW */}
+{page==="map"&&<div>
+<div style={{background:t.card,borderRadius:8,border:`2px solid ${t.border}`,padding:24}}>
+<h3 style={{fontSize:16,fontWeight:700,margin:"0 0 4px",color:t.text}}>Traffic Chowk Map</h3>
+<p style={{fontSize:12,color:t.muted,margin:"0 0 16px"}}>{chowks.length} chowks registered</p>
+<div style={{position:"relative",width:"100%",height:400,background:"#E2E8F0",borderRadius:8,border:`2px solid ${t.border}`,overflow:"hidden"}}>
+<svg viewBox="0 0 800 400" style={{width:"100%",height:"100%"}}>
+<rect width="800" height="400" fill={dark?"#1E293B":"#E8F0FE"}/>
+<text x="400" y="30" textAnchor="middle" fontSize="14" fill={t.muted} fontWeight="600">City Map View</text>
+{chowks.map((c,i)=>{
+const x=150+((i%4)*180);const y=80+Math.floor(i/4)*120;
+return <g key={c.id}>
+<circle cx={x} cy={y} r={20} fill={c.status==="active"?"#10B981":"#EF4444"} opacity="0.8"/>
+<circle cx={x} cy={y} r={8} fill="#fff"/>
+<text x={x} y={y+35} textAnchor="middle" fontSize="10" fill={t.text} fontWeight="600">{c.name}</text>
+<text x={x} y={y+48} textAnchor="middle" fontSize="8" fill={t.muted}>{c.lanes}L / {c.cameras}C</text>
+</g>;})}
+{chowks.length===0&&<text x="400" y="200" textAnchor="middle" fontSize="14" fill={t.muted}>No chowks added yet. Add chowks to see them on the map.</text>}
+</svg>
+</div>
+<div style={{display:"flex",gap:16,marginTop:12,fontSize:11,color:t.muted}}>
+<span><span style={{display:"inline-block",width:10,height:10,borderRadius:"50%",background:"#10B981",marginRight:4}}/>Active</span>
+<span><span style={{display:"inline-block",width:10,height:10,borderRadius:"50%",background:"#EF4444",marginRight:4}}/>Inactive</span>
+<span>L = Lanes, C = Cameras</span>
+</div></div></div>}
+{/* CCTV */}
+{page==="cctv"&&<div>
+<h3 style={{fontSize:16,fontWeight:700,margin:"0 0 16px",color:t.text}}>Live CCTV Feeds</h3>
+{chowks.length===0?<div style={{background:t.card,borderRadius:8,border:`2px solid ${t.border}`,padding:48,textAlign:"center"}}><p style={{color:t.muted}}>No chowks with cameras configured yet.</p></div>:
+<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+{chowks.map(c=>
+<div key={c.id} style={{background:t.card,borderRadius:8,border:`2px solid ${t.border}`,overflow:"hidden"}}>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 16px",borderBottom:`1px solid ${t.border}`}}>
+<div><h4 style={{fontSize:13,fontWeight:700,margin:0,color:t.text}}>{c.name}</h4>
+<p style={{fontSize:10,color:t.muted,margin:0}}>{c.cameras} cameras</p></div>
+<span style={{padding:"3px 8px",borderRadius:4,fontSize:9,fontWeight:700,background:c.status==="active"?"#ECFDF5":"#FEF2F2",color:c.status==="active"?"#10B981":"#EF4444",textTransform:"uppercase"}}>{c.status==="active"?"LIVE":"OFFLINE"}</span>
+</div>
+<div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(c.cameras||1,2)},1fr)`,gap:1}}>
+{Array.from({length:Math.min(c.cameras||1,4)}).map((_,i)=>
+<div key={i} style={{background:dark?"#0F172A":"#1E293B",height:140,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"#64748B",fontSize:10}}>
+<span style={{fontSize:24,marginBottom:6}}>📹</span>
+<span>Camera {i+1}</span>
+<span style={{fontSize:8,marginTop:2}}>Stream: WebRTC/HLS</span>
+{c.status==="active"&&<span style={{color:"#10B981",fontSize:8,marginTop:4}}>● Connected</span>}
+</div>)}
+</div></div>)}
+</div>}</div>}
+
 <footer style={{marginTop:28,paddingTop:14,borderTop:`1px solid ${t.border}`,display:"flex",justifyContent:"space-between"}}>
 <p style={{fontSize:10,color:t.muted,margin:0}}>© Datamorphosis Technologies Pvt. Ltd. • ISTSS v2.0.0</p>
 <p style={{fontSize:10,color:t.muted,margin:0}}>API: 30 endpoints • DB: 26 tables</p>

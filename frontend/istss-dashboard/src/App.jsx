@@ -1,7 +1,9 @@
 import{useState,useEffect,useCallback}from"react";
+import{BarChart,Bar,PieChart,Pie,Cell,XAxis,YAxis,CartesianGrid,Tooltip,ResponsiveContainer}from"recharts";
 const API="https://istss-api-dev.azurewebsites.net";
 const App=()=>{
 const[screen,setScreen]=useState("login");
+const[dark,setDark]=useState(false);
 const[page,setPage]=useState("dashboard");
 const[token,setToken]=useState(null);
 const[user,setUser]=useState(null);
@@ -24,7 +26,10 @@ const[pendingUsers,setPendingUsers]=useState([]);
 const[form,setForm]=useState({});
 const[editId,setEditId]=useState(null);
 const[msg,setMsg]=useState("");
-const t={bg:"#F1F5F9",card:"#fff",sidebar:"#0F172A",border:"#1E293B",text:"#0F172A",muted:"#64748B",accent:"#1E40AF",danger:"#DC2626",success:"#059669",warn:"#D97706"};
+const[marqueePos,setMarqueePos]=useState(0);
+useEffect(()=>{const i=setInterval(()=>setMarqueePos(p=>(p+1)%3),4000);return()=>clearInterval(i);},[]);
+const marqueeTexts=["ISTSS Platform — Datamorphosis Technologies Pvt. Ltd.","Smart Traffic Signal System — Real-time Monitoring","Powered by AI & Edge Computing"];
+const t=dark?{bg:"#0F172A",card:"#1E293B",sidebar:"#0F172A",border:"#334155",text:"#F1F5F9",muted:"#94A3B8",accent:"#3B82F6",danger:"#EF4444",success:"#10B981",warn:"#F59E0B"}:{bg:"#F1F5F9",card:"#fff",sidebar:"#0F172A",border:"#1E293B",text:"#0F172A",muted:"#64748B",accent:"#1E40AF",danger:"#DC2626",success:"#059669",warn:"#D97706"};
 const api=useCallback(async(path,opts={})=>{
 const h={"Content-Type":"application/json",...(token?{Authorization:`Bearer ${token}`}:{})};
 const r=await fetch(`${API}${path}`,{...opts,headers:h});
@@ -87,7 +92,7 @@ const KPI=({label,value,color})=>(
 </div>);
 // MAIN LAYOUT
 return(
-<div style={{minHeight:"100vh",background:t.bg,fontFamily:"'Inter',system-ui,sans-serif",display:"flex",color:t.text}}>
+<div style={{minHeight:"100vh",background:t.bg,fontFamily:"'Inter',system-ui,sans-serif",display:"flex",color:t.text,transition:"background 0.3s"}}>
 <aside style={{width:220,background:t.sidebar,display:"flex",flexDirection:"column",flexShrink:0,position:"fixed",top:0,left:0,height:"100vh",zIndex:50}}>
 <div style={{padding:"18px 18px 14px",borderBottom:"1px solid #334155",display:"flex",alignItems:"center",gap:10}}>
 <img src="/logo.svg" alt="DM" style={{width:32,height:25}}/>
@@ -105,10 +110,19 @@ return(
 <button onClick={()=>{setScreen("login");setToken(null);}} style={{width:"100%",padding:"8px",borderRadius:6,border:"none",background:"transparent",color:"#EF4444",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Sign Out</button>
 </div></aside>
 <div style={{flex:1,marginLeft:220}}>
-<header style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 28px",height:52,background:t.card,borderBottom:`2px solid ${t.border}`,position:"sticky",top:0,zIndex:40}}>
+<header style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 28px",height:52,background:t.card,borderBottom:`2px solid ${t.border}`,position:"sticky",top:0,zIndex:45,position:"relative"}}>
 <h2 style={{fontSize:15,fontWeight:700,margin:0}}>{navItems.find(n=>n.id===page)?.label}</h2>
+<div style={{position:"absolute",top:0,left:220,right:0,height:28,background:dark?"#1E293B":"#0F172A",display:"flex",alignItems:"center",overflow:"hidden",zIndex:50}}>
+<div style={{color:"#60A5FA",fontSize:11,fontWeight:600,whiteSpace:"nowrap",animation:"marquee 20s linear infinite",paddingLeft:"100%"}}>
+{marqueeTexts[marqueePos]}</div>
+<style>{"@keyframes marquee{0%{transform:translateX(0)}100%{transform:translateX(-100%)}}"}</style></div>
+</header>
+<header style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 28px",height:52,background:t.card,borderBottom:`2px solid ${t.border}`,position:"sticky",top:28,zIndex:40,marginTop:28}}>
+<div style={{display:"flex",alignItems:"center",gap:12}}>
+<h2 style={{fontSize:15,fontWeight:700,margin:0,color:t.text}}>{navItems.find(n=>n.id===page)?.label}</h2></div>
 <div style={{display:"flex",alignItems:"center",gap:12}}>
 {msg&&<span style={{fontSize:12,color:t.success,fontWeight:600,background:"#ECFDF5",padding:"4px 12px",borderRadius:4}}>{msg}</span>}
+<button onClick={()=>setDark(!dark)} style={{...s.btn,padding:"6px 14px",background:"transparent",border:`1px solid ${t.border}`,color:t.text}}>{dark?"☀️ Light":"🌙 Dark"}</button>
 <button onClick={load} style={{...s.btn,padding:"6px 14px",background:"transparent",border:`1px solid ${t.border}`,color:t.text}}>Refresh</button>
 <div style={{display:"flex",alignItems:"center",gap:5,padding:"3px 10px",borderRadius:16,background:"#ECFDF5"}}><span style={{width:6,height:6,borderRadius:"50%",background:t.success,display:"inline-block"}}/><span style={{fontSize:10,fontWeight:700,color:t.success}}>LIVE</span></div>
 </div></header>
@@ -127,8 +141,30 @@ return(
 <KPI label="Time Saved (hrs)" value={summary.total_time_saved_hours??0} color="#8B5CF6"/>
 <KPI label="CO2 Saved (kg)" value={summary.total_co2_saved_kg??0} color="#10B981"/>
 </div>
+<div style={{background:t.card,borderRadius:8,border:`2px solid ${t.border}`,padding:"16px 24px",marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+<div style={{display:"flex",alignItems:"center",gap:12}}>
+<div style={{width:40,height:40,borderRadius:"50%",background:t.accent+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🏛️</div>
+<div><h3 style={{fontSize:14,fontWeight:700,margin:0,color:t.text}}>Datamorphosis Technologies Pvt. Ltd.</h3>
+<p style={{fontSize:11,color:t.muted,margin:0}}>Intelligent Smart Traffic Signal System • ISTSS v3.0</p></div></div>
+<div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",borderRadius:20,background:"#ECFDF5",border:"1px solid #A7F3D0"}}>
+<span style={{width:6,height:6,borderRadius:"50%",background:"#059669",display:"inline-block"}}/>
+<span style={{fontSize:11,fontWeight:700,color:"#059669"}}>LIVE</span></div></div>
+{/* CHARTS */}
+{summary.violation_by_type&&Object.keys(summary.violation_by_type).length>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginBottom:20}}>
 <div style={{background:t.card,borderRadius:8,border:`2px solid ${t.border}`,padding:20}}>
-<h3 style={{fontSize:14,fontWeight:700,margin:"0 0 12px"}}>Quick Actions</h3>
+<h3 style={{fontSize:13,fontWeight:700,margin:"0 0 12px",color:t.text}}>Violations by Type</h3>
+<ResponsiveContainer width="100%" height={200}>
+<PieChart><Pie data={Object.entries(summary.violation_by_type).map(([k,v])=>({name:k,value:v}))} cx="50%" cy="50%" outerRadius={70} dataKey="value" label={({name,value})=>`${name}: ${value}`}>
+{Object.keys(summary.violation_by_type).map((_,i)=><Cell key={i} fill={["#EF4444","#F59E0B","#3B82F6","#8B5CF6","#06B6D4","#10B981","#EC4899"][i%7]}/>)}</Pie>
+<Tooltip/></PieChart></ResponsiveContainer></div>
+<div style={{background:t.card,borderRadius:8,border:`2px solid ${t.border}`,padding:20}}>
+<h3 style={{fontSize:13,fontWeight:700,margin:"0 0 12px",color:t.text}}>Violations Count</h3>
+<ResponsiveContainer width="100%" height={200}>
+<BarChart data={Object.entries(summary.violation_by_type).map(([k,v])=>({type:k.substring(0,10),count:v}))}>
+<CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="type" fontSize={10}/><YAxis fontSize={10}/>
+<Tooltip/><Bar dataKey="count" fill="#3B82F6" radius={[4,4,0,0]}/></BarChart></ResponsiveContainer></div></div>}
+<div style={{background:t.card,borderRadius:8,border:`2px solid ${t.border}`,padding:20}}>
+<h3 style={{fontSize:14,fontWeight:700,margin:"0 0 12px",color:t.text}}>Quick Actions</h3>
 <div style={{display:"flex",gap:12}}>
 {["chowks","devices","violations","notifications"].map(p=>
 <button key={p} onClick={()=>setPage(p)} style={{...s.btn,background:t.accent,color:"#fff",textTransform:"capitalize"}}>Manage {p}</button>)}

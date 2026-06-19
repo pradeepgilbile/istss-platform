@@ -45,7 +45,7 @@ const navItems=[
 const App=()=>{
   const[screen,setScreen]=useState("login");
   const[regForm,setRegForm]=useState({});
-  const[dark,setDark]=useState(true);
+  const[dark,setDark]=useState(false);
   const[page,setPage]=useState("dashboard");
   const[token,setToken]=useState(null);
   const[user,setUser]=useState(null);
@@ -277,16 +277,71 @@ const App=()=>{
     <KPI label="CO₂ Saved (kg)" value={summary.total_co2_saved_kg??0} color="#10b981" emoji="🌱"/>
   </div>
 
-  {/* Authority Banner */}
+  {/* ─── Municipal Corporation Authority Branding ─── */}
   <div className="authority-banner">
-    <div className="authority-info">
-      <div className="authority-logo">🏛️</div>
-      <div>
-        <div className="authority-name">Datamorphosis Technologies Pvt. Ltd.</div>
-        <div className="authority-sub">Intelligent Smart Traffic Signal System • ISTSS v5.0</div>
+    {/* Top: MC Identity Band */}
+    <div className="authority-banner-top">
+      <div className="mc-branding">
+        <div className="mc-logo">
+          <span className="mc-logo-placeholder">🏛️</span>
+          {/* Replace with: <img src="/mc-logo.png" alt="MC Logo"/> */}
+        </div>
+        <div className="mc-info">
+          <h2>Pimpri-Chinchwad Municipal Corporation</h2>
+          <h3>Smart City Initiative — ISTSS Traffic Management</h3>
+        </div>
+      </div>
+      <span className="mc-badge">● System Online</span>
+    </div>
+
+    {/* Officials Row */}
+    <div className="authority-officials">
+      <div className="official-card">
+        <div className="official-photo">
+          <span className="official-photo-placeholder">👤</span>
+          {/* Replace with: <img src="/commissioner.jpg" alt="Commissioner"/> */}
+        </div>
+        <div>
+          <div className="official-role">Municipal Commissioner</div>
+          <div className="official-name">Shri. Shekhar Singh, IAS</div>
+          <div className="official-desg">Commissioner, PCMC</div>
+        </div>
+      </div>
+      <div className="official-card">
+        <div className="official-photo">
+          <span className="official-photo-placeholder">👤</span>
+          {/* Replace with: <img src="/sp.jpg" alt="SP"/> */}
+        </div>
+        <div>
+          <div className="official-role">Superintendent of Police</div>
+          <div className="official-name">Shri. Manoj Patil, IPS</div>
+          <div className="official-desg">SP Traffic, Pimpri-Chinchwad</div>
+        </div>
+      </div>
+      <div className="official-card">
+        <div className="official-photo">
+          <span className="official-photo-placeholder">👤</span>
+          {/* Replace with: <img src="/nodal.jpg" alt="Nodal Officer"/> */}
+        </div>
+        <div>
+          <div className="official-role">Nodal Officer — ISTSS</div>
+          <div className="official-name">Shri. Rajesh Deshmukh</div>
+          <div className="official-desg">Dy. Commissioner (IT), PCMC</div>
+        </div>
       </div>
     </div>
-    <div className="badge-live">SYSTEM ONLINE</div>
+
+    {/* Bottom: Datamorphosis Branding */}
+    <div className="dm-branding">
+      <div className="dm-brand-info">
+        <img src="/favicon.svg" alt="DM" className="dm-brand-logo"/>
+        <div>
+          <div className="dm-brand-text">Datamorphosis Technologies Pvt. Ltd.</div>
+          <div className="dm-brand-sub">Intelligent Smart Traffic Signal System • ISTSS v5.0</div>
+        </div>
+      </div>
+      <div className="badge-live">LIVE</div>
+    </div>
   </div>
 
   {/* Charts */}

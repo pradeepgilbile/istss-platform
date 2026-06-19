@@ -69,6 +69,18 @@ const App=()=>{
   const[editId,setEditId]=useState(null);
   const[msg,setMsg]=useState("");
 
+  // ─── Dynamic MC Authority Config (persisted in localStorage) ───
+  const defaultMc={mc_name:"",mc_subtitle:"",mc_logo_url:"",officials:[
+    {role:"Municipal Commissioner",name:"",designation:"",photo_url:""},
+    {role:"Superintendent of Police",name:"",designation:"",photo_url:""},
+    {role:"Nodal Officer — ISTSS",name:"",designation:"",photo_url:""}
+  ]};
+  const[mcConfig,setMcConfig]=useState(()=>{try{const s=localStorage.getItem("istss_mc_config");return s?JSON.parse(s):defaultMc;}catch(e){return defaultMc;}});
+  const[mcEditing,setMcEditing]=useState(false);
+  const[mcForm,setMcForm]=useState(mcConfig);
+  const saveMcConfig=(cfg)=>{setMcConfig(cfg);setMcForm(cfg);localStorage.setItem("istss_mc_config",JSON.stringify(cfg));setMcEditing(false);flash("Authority details saved");};
+  const mcHasData=mcConfig.mc_name||mcConfig.officials.some(o=>o.name);
+
   useEffect(()=>{document.documentElement.setAttribute("data-theme",dark?"dark":"light");},[dark]);
 
   const api=useCallback(async(path,opts={})=>{
@@ -264,6 +276,97 @@ const App=()=>{
 
 {/* ════════════════ DASHBOARD ════════════════ */}
 {page==="dashboard"&&<div>
+
+  {/* ─── Dynamic Municipal Corporation Authority Panel ─── */}
+  {mcEditing?(
+    <div className="form-card" style={{marginBottom:24}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+        <h3 style={{margin:0}}>Configure Authority Details</h3>
+        <button onClick={()=>{setMcEditing(false);setMcForm(mcConfig);}} className="btn btn-ghost btn-sm">Cancel</button>
+      </div>
+      <div className="form-grid form-grid-2" style={{marginBottom:16}}>
+        <div className="form-field">
+          <label>Municipal Corporation Name</label>
+          <input value={mcForm.mc_name} onChange={e=>setMcForm({...mcForm,mc_name:e.target.value})} placeholder="e.g. Pimpri-Chinchwad Municipal Corporation"/>
+        </div>
+        <div className="form-field">
+          <label>Subtitle / Initiative</label>
+          <input value={mcForm.mc_subtitle} onChange={e=>setMcForm({...mcForm,mc_subtitle:e.target.value})} placeholder="e.g. Smart City Initiative — ISTSS Traffic Management"/>
+        </div>
+        <div className="form-field">
+          <label>MC Logo URL</label>
+          <input value={mcForm.mc_logo_url} onChange={e=>setMcForm({...mcForm,mc_logo_url:e.target.value})} placeholder="https://... or /mc-logo.png"/>
+        </div>
+      </div>
+
+      <h3 style={{fontSize:13,margin:"20px 0 14px",paddingTop:16,borderTop:"1px solid var(--border-primary)"}}>Officials</h3>
+      {mcForm.officials.map((off,i)=>(
+        <div key={i} style={{marginBottom:16,padding:16,background:"var(--bg-surface-hover)",borderRadius:"var(--radius-md)",border:"1px solid var(--border-subtle)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <span style={{fontSize:11,fontWeight:700,color:"var(--accent-primary)",textTransform:"uppercase",letterSpacing:"0.08em"}}>Official {i+1}</span>
+            {mcForm.officials.length>1&&<button onClick={()=>{const o=[...mcForm.officials];o.splice(i,1);setMcForm({...mcForm,officials:o});}} className="btn btn-danger btn-sm">Remove</button>}
+          </div>
+          <div className="form-grid form-grid-4">
+            <div className="form-field"><label>Role / Title</label><input value={off.role} onChange={e=>{const o=[...mcForm.officials];o[i]={...o[i],role:e.target.value};setMcForm({...mcForm,officials:o});}} placeholder="e.g. Municipal Commissioner"/></div>
+            <div className="form-field"><label>Full Name</label><input value={off.name} onChange={e=>{const o=[...mcForm.officials];o[i]={...o[i],name:e.target.value};setMcForm({...mcForm,officials:o});}} placeholder="e.g. Shri. Shekhar Singh, IAS"/></div>
+            <div className="form-field"><label>Designation</label><input value={off.designation} onChange={e=>{const o=[...mcForm.officials];o[i]={...o[i],designation:e.target.value};setMcForm({...mcForm,officials:o});}} placeholder="e.g. Commissioner, PCMC"/></div>
+            <div className="form-field"><label>Photo URL</label><input value={off.photo_url} onChange={e=>{const o=[...mcForm.officials];o[i]={...o[i],photo_url:e.target.value};setMcForm({...mcForm,officials:o});}} placeholder="https://... or /photo.jpg"/></div>
+          </div>
+        </div>
+      ))}
+      {mcForm.officials.length<5&&<button onClick={()=>setMcForm({...mcForm,officials:[...mcForm.officials,{role:"",name:"",designation:"",photo_url:""}]})} className="btn btn-ghost" style={{marginBottom:16}}>+ Add Official</button>}
+
+      <div className="form-actions" style={{borderTop:"1px solid var(--border-primary)",paddingTop:16}}>
+        <button onClick={()=>saveMcConfig(mcForm)} className="btn btn-success">Save Authority Details</button>
+        <button onClick={()=>saveMcConfig(defaultMc)} className="btn btn-danger">Clear All</button>
+      </div>
+    </div>
+  ):(
+    <div className="authority-banner" style={{marginBottom:24}}>
+      <div className="authority-banner-top">
+        <div className="mc-branding">
+          <div className="mc-logo">
+            {mcConfig.mc_logo_url?<img src={mcConfig.mc_logo_url} alt="MC"/>:<span className="mc-logo-placeholder">🏛️</span>}
+          </div>
+          <div className="mc-info">
+            <h2>{mcConfig.mc_name||"Municipal Corporation"}</h2>
+            <h3>{mcConfig.mc_subtitle||"ISTSS — Smart Traffic Signal System"}</h3>
+          </div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span className="mc-badge">● System Online</span>
+          <button onClick={()=>{setMcForm(mcConfig);setMcEditing(true);}} className="btn btn-sm" style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"1px solid rgba(255,255,255,0.25)",fontSize:10}}>✎ Edit</button>
+        </div>
+      </div>
+
+      {mcConfig.officials.some(o=>o.name)&&<div className="authority-officials" style={{gridTemplateColumns:`repeat(${mcConfig.officials.filter(o=>o.name).length},1fr)`}}>
+        {mcConfig.officials.filter(o=>o.name).map((off,i)=>(
+          <div key={i} className="official-card">
+            <div className="official-photo">
+              {off.photo_url?<img src={off.photo_url} alt={off.name}/>:<span className="official-photo-placeholder">👤</span>}
+            </div>
+            <div>
+              <div className="official-role">{off.role||"Official"}</div>
+              <div className="official-name">{off.name}</div>
+              {off.designation&&<div className="official-desg">{off.designation}</div>}
+            </div>
+          </div>
+        ))}
+      </div>}
+
+      <div className="dm-branding">
+        <div className="dm-brand-info">
+          <img src="/favicon.svg" alt="DM" className="dm-brand-logo"/>
+          <div>
+            <div className="dm-brand-text">Datamorphosis Technologies Pvt. Ltd.</div>
+            <div className="dm-brand-sub">Intelligent Smart Traffic Signal System • ISTSS v5.0</div>
+          </div>
+        </div>
+        <div className="badge-live">LIVE</div>
+      </div>
+    </div>
+  )}
+
   <div className="kpi-grid">
     <KPI label="Total Violations" value={summary.total_violations??0} color="#f43f5e" emoji="⚠️"/>
     <KPI label="Online Devices" value={`${summary.online_devices??0}/${summary.total_devices??0}`} color="#10b981" emoji="📡"/>
@@ -275,73 +378,6 @@ const App=()=>{
     <KPI label="WhatsApp Sent" value={summary.whatsapp_sent_today??0} color="#06b6d4" emoji="💬"/>
     <KPI label="Time Saved (hrs)" value={summary.total_time_saved_hours??0} color="#8b5cf6" emoji="⏱️"/>
     <KPI label="CO₂ Saved (kg)" value={summary.total_co2_saved_kg??0} color="#10b981" emoji="🌱"/>
-  </div>
-
-  {/* ─── Municipal Corporation Authority Branding ─── */}
-  <div className="authority-banner">
-    {/* Top: MC Identity Band */}
-    <div className="authority-banner-top">
-      <div className="mc-branding">
-        <div className="mc-logo">
-          <span className="mc-logo-placeholder">🏛️</span>
-          {/* Replace with: <img src="/mc-logo.png" alt="MC Logo"/> */}
-        </div>
-        <div className="mc-info">
-          <h2>Pimpri-Chinchwad Municipal Corporation</h2>
-          <h3>Smart City Initiative — ISTSS Traffic Management</h3>
-        </div>
-      </div>
-      <span className="mc-badge">● System Online</span>
-    </div>
-
-    {/* Officials Row */}
-    <div className="authority-officials">
-      <div className="official-card">
-        <div className="official-photo">
-          <span className="official-photo-placeholder">👤</span>
-          {/* Replace with: <img src="/commissioner.jpg" alt="Commissioner"/> */}
-        </div>
-        <div>
-          <div className="official-role">Municipal Commissioner</div>
-          <div className="official-name">Shri. Shekhar Singh, IAS</div>
-          <div className="official-desg">Commissioner, PCMC</div>
-        </div>
-      </div>
-      <div className="official-card">
-        <div className="official-photo">
-          <span className="official-photo-placeholder">👤</span>
-          {/* Replace with: <img src="/sp.jpg" alt="SP"/> */}
-        </div>
-        <div>
-          <div className="official-role">Superintendent of Police</div>
-          <div className="official-name">Shri. Manoj Patil, IPS</div>
-          <div className="official-desg">SP Traffic, Pimpri-Chinchwad</div>
-        </div>
-      </div>
-      <div className="official-card">
-        <div className="official-photo">
-          <span className="official-photo-placeholder">👤</span>
-          {/* Replace with: <img src="/nodal.jpg" alt="Nodal Officer"/> */}
-        </div>
-        <div>
-          <div className="official-role">Nodal Officer — ISTSS</div>
-          <div className="official-name">Shri. Rajesh Deshmukh</div>
-          <div className="official-desg">Dy. Commissioner (IT), PCMC</div>
-        </div>
-      </div>
-    </div>
-
-    {/* Bottom: Datamorphosis Branding */}
-    <div className="dm-branding">
-      <div className="dm-brand-info">
-        <img src="/favicon.svg" alt="DM" className="dm-brand-logo"/>
-        <div>
-          <div className="dm-brand-text">Datamorphosis Technologies Pvt. Ltd.</div>
-          <div className="dm-brand-sub">Intelligent Smart Traffic Signal System • ISTSS v5.0</div>
-        </div>
-      </div>
-      <div className="badge-live">LIVE</div>
-    </div>
   </div>
 
   {/* Charts */}

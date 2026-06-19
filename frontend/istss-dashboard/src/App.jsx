@@ -3,8 +3,8 @@ import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Cart
 
 // ─── MOCK DATA ───────────────────────────────────────────────────────────────
 const CITIES = [
-  { id: "nanded", name: "Nanded", corporation: "Nanded Waghala City Municipal Corporation", police: "Nanded City Police", state: "Maharashtra", commissioner: "Shri. Rajesh Kumar", cp: "Shri. Anil Deshmukh" },
-  { id: "pcmc", name: "Pimpri-Chinchwad", corporation: "Pimpri-Chinchwad Municipal Corporation", police: "PCMC Traffic Police", state: "Maharashtra", commissioner: "Shri. Vikram Patil", cp: "Shri. Suresh Jadhav" },
+  { id: "nanded", name: "Nanded", corporation: "Nanded Waghala City Municipal Corporation", police: "Nanded City Police", state: "Maharashtra", commissioner: "", cp: "" },
+  { id: "pcmc", name: "Pimpri-Chinchwad", corporation: "Pimpri-Chinchwad Municipal Corporation", police: "PCMC Traffic Police", state: "Maharashtra", commissioner: "", cp: "" },
 ];
 
 const CHOWKS = {
@@ -213,16 +213,16 @@ function LoginScreen({ onLogin, onRegister, onForgot }) {
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <img src="/logo.svg" alt="Datamorphosis" style={{ width: 100, height: 80, marginBottom: 12, filter: "drop-shadow(0 4px 16px rgba(37,99,235,0.35))" }} />
           <h1 style={{ color: "#0F172A", fontSize: 20, fontWeight: 700, margin: "0 0 4px" }}>Smart Traffic Intelligence</h1>
-          <p style={{ color: "#64748b", fontSize: 12, margin: 0 }}>Datamorphosis Technologies Pvt. Ltd.</p>
+          <p style={{ color: "#64748B", fontSize: 12, margin: 0 }}>Datamorphosis Technologies Pvt. Ltd.</p>
         </div>
         <div style={{ marginBottom: 16 }}>
-          <label style={{ display: "block", fontSize: 12, color: "#94a3b8", marginBottom: 6 }}>Email Address</label>
-          <input value={email} onChange={e => setEmail(e.target.value)} style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#f8fafc", fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+          <label style={{ display: "block", fontSize: 12, color: "#334155", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>Email Address</label>
+          <input value={email} onChange={e => setEmail(e.target.value)} style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "#F8FAFC", color: "#0F172A", border: "2px solid #1E293B", fontSize: 14, outline: "none", boxSizing: "border-box" }} />
         </div>
         <div style={{ marginBottom: 8 }}>
-          <label style={{ display: "block", fontSize: 12, color: "#94a3b8", marginBottom: 6 }}>Password</label>
+          <label style={{ display: "block", fontSize: 12, color: "#334155", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>Password</label>
           <div style={{ position: "relative" }}>
-            <input type={showPass ? "text" : "password"} value={pass} onChange={e => setPass(e.target.value)} style={{ width: "100%", padding: "10px 40px 10px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#f8fafc", fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+            <input type={showPass ? "text" : "password"} value={pass} onChange={e => setPass(e.target.value)} style={{ width: "100%", padding: "10px 40px 10px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "#F8FAFC", color: "#0F172A", border: "2px solid #1E293B", fontSize: 14, outline: "none", boxSizing: "border-box" }} />
             <button onClick={() => setShowPass(!showPass)} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: 14 }}>{showPass ? "🙈" : "👁️"}</button>
           </div>
         </div>
@@ -266,12 +266,12 @@ function RegistrationScreen({ onBack }) {
             <div key={f.label}>
               <label style={{ display: "block", fontSize: 12, color: "#94a3b8", marginBottom: 5 }}>{f.label}</label>
               {f.type === "select" ? (
-                <select style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#f8fafc", fontSize: 13, outline: "none", boxSizing: "border-box" }}>
+                <select style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "#F8FAFC", color: "#0F172A", border: "2px solid #1E293B", fontSize: 13, outline: "none", boxSizing: "border-box" }}>
                   <option value="">Select...</option>
                   {f.options.map(o => <option key={o} value={o}>{o}</option>)}
                 </select>
               ) : (
-                <input placeholder={f.placeholder} type={f.type || "text"} style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#f8fafc", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                <input placeholder={f.placeholder} type={f.type || "text"} style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "#F8FAFC", color: "#0F172A", border: "2px solid #1E293B", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
               )}
             </div>
           ))}
@@ -293,15 +293,15 @@ function ForgotPasswordScreen({ onBack }) {
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0F172A 0%, #1E293B 50%, #334155 100%)", fontFamily: "'Inter', system-ui, sans-serif" }}>
       <div style={{ width: 400, padding: 40, borderRadius: 16, background: "rgba(17,24,39,0.85)", border: "1px solid rgba(255,255,255,0.08)" }}>
         <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div style={{ fontSize: 36, marginBottom: 8 }}>{sent ? "📧" : "🔐"}</div>
+          <img src="/logo.svg" alt="Datamorphosis" style={{ width: 80, height: 64, marginBottom: 8, filter: "drop-shadow(0 4px 12px rgba(37,99,235,0.3))" }} />
           <h1 style={{ color: "#f8fafc", fontSize: 18, fontWeight: 700, margin: "0 0 6px" }}>{sent ? "Check Your Email" : "Reset Password"}</h1>
           <p style={{ color: "#64748b", fontSize: 12, margin: 0 }}>{sent ? "A password reset link has been sent to your registered email." : "Enter your registered email to receive a reset link."}</p>
         </div>
         {!sent && (
           <>
             <div style={{ marginBottom: 20 }}>
-              <label style={{ display: "block", fontSize: 12, color: "#94a3b8", marginBottom: 6 }}>Email Address</label>
-              <input placeholder="your.email@gov.in" style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#f8fafc", fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+              <label style={{ display: "block", fontSize: 12, color: "#334155", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>Email Address</label>
+              <input placeholder="your.email@gov.in" style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "#F8FAFC", color: "#0F172A", border: "2px solid #1E293B", fontSize: 14, outline: "none", boxSizing: "border-box" }} />
             </div>
             <button onClick={() => setSent(true)} style={{ width: "100%", padding: "12px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #3b82f6, #2563eb)", color: "#fff", fontWeight: 600, fontSize: 14, cursor: "pointer", marginBottom: 12 }}>Send Reset Link</button>
           </>

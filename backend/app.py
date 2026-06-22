@@ -94,6 +94,15 @@ def init_db():
         "ALTER TABLE istss_devices ADD COLUMN IF NOT EXISTS ssh_password VARCHAR(100) DEFAULT ''",
         "ALTER TABLE istss_devices ADD COLUMN IF NOT EXISTS heartbeat_data JSONB",
         "ALTER TABLE istss_live_traffic ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()",
+        "ALTER TABLE istss_live_traffic ADD COLUMN IF NOT EXISTS vehicle_classification JSONB",
+        "ALTER TABLE istss_live_traffic ADD COLUMN IF NOT EXISTS total_vehicles INT DEFAULT 0",
+        "ALTER TABLE istss_live_traffic ADD COLUMN IF NOT EXISTS estimated_co2_kg FLOAT DEFAULT 0",
+        "ALTER TABLE istss_live_traffic ADD COLUMN IF NOT EXISTS time_saved_seconds FLOAT DEFAULT 0",
+        "ALTER TABLE istss_live_traffic ADD COLUMN IF NOT EXISTS trees_equivalent FLOAT DEFAULT 0",
+        "ALTER TABLE istss_live_traffic ADD COLUMN IF NOT EXISTS net_zero_score FLOAT DEFAULT 0",
+        "ALTER TABLE istss_live_traffic ADD COLUMN IF NOT EXISTS interval_seconds INT DEFAULT 60",
+        "ALTER TABLE istss_live_traffic ADD COLUMN IF NOT EXISTS chowk_id VARCHAR(20)",
+        "ALTER TABLE istss_live_traffic ADD COLUMN IF NOT EXISTS device_id VARCHAR(30)",
     ]:
         try:db_exec(col)
         except:pass

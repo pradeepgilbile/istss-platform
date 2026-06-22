@@ -103,6 +103,8 @@ def init_db():
         "ALTER TABLE istss_live_traffic ADD COLUMN IF NOT EXISTS interval_seconds INT DEFAULT 60",
         "ALTER TABLE istss_live_traffic ADD COLUMN IF NOT EXISTS chowk_id VARCHAR(20)",
         "ALTER TABLE istss_live_traffic ADD COLUMN IF NOT EXISTS device_id VARCHAR(30)",
+        # Migrate CHK001 test records to actual device's registered chowk
+        "UPDATE istss_live_traffic SET chowk_id=(SELECT chowk_id FROM istss_devices WHERE id=istss_live_traffic.device_id LIMIT 1) WHERE chowk_id='CHK001' AND device_id IS NOT NULL AND EXISTS(SELECT 1 FROM istss_devices WHERE id=istss_live_traffic.device_id AND chowk_id IS NOT NULL)",
     ]:
         try:db_exec(col)
         except:pass
@@ -466,7 +468,11 @@ async def heartbeat(request:Request):
             trees=round(co2_kg/21.77,2) if co2_kg>0 else 0
             co2_gen=(cars*2.3+bikes*1.0+buses*8.0+trucks*6.0)*60/1000  # baseline 60s fixed
             score=round(min(co2_kg/max(co2_gen,0.001)*100,100),1)
-            chowk_id=data.get("chowk_id","CHK001")
+            chowk_id=data.get("chowk_id")
+            if not chowk_id:
+                # Look up device's registered chowk from DB
+                dev_row=db_exec("SELECT chowk_id FROM istss_devices WHERE id=%s",(device_id,),fetch=True)
+                chowk_id=dev_row[0]["chowk_id"] if dev_row and dev_row[0].get("chowk_id") else "unknown"
             tid=uid()
             try:
                 db_exec("INSERT INTO istss_live_traffic(id,chowk_id,device_id,total_vehicles,vehicle_classification,estimated_co2_kg,time_saved_seconds,trees_equivalent,net_zero_score,interval_seconds,created_at) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())",
@@ -562,18 +568,20 @@ async def traffic_summary(u:dict=Depends(auth)):
         """
         hourly=db_exec(hourly_sql,fetch=True) or []
         trend=[{"hour":str(h.get("hour","")),"vehicles":int(h["vehicles"]),"co2":round(float(h["co2"]),2)} for h in hourly]
-        # Per-chowk breakdown
+        # Per-chowk breakdown — join with chowks table for names
         chowk_sql="""
-            SELECT chowk_id, COALESCE(SUM(mv),0) as vehicles, COALESCE(SUM(mc),0) as co2
+            SELECT sub.chowk_id, COALESCE(c.name, sub.chowk_id) as chowk_name,
+                   COALESCE(SUM(mv),0) as vehicles, COALESCE(SUM(mc),0) as co2
             FROM (
                 SELECT chowk_id, date_trunc('minute',created_at) as m,
                        MAX(total_vehicles) as mv, MAX(estimated_co2_kg) as mc
                 FROM istss_live_traffic WHERE created_at >= CURRENT_DATE
                 GROUP BY chowk_id, date_trunc('minute',created_at)
-            ) sub GROUP BY chowk_id
+            ) sub LEFT JOIN istss_chowks c ON c.id=sub.chowk_id
+            GROUP BY sub.chowk_id, c.name
         """
         chowks_data=db_exec(chowk_sql,fetch=True) or []
-        chowks=[{"chowk_id":c["chowk_id"],"vehicles":int(c["vehicles"]),"co2":round(float(c["co2"]),2)} for c in chowks_data]
+        chowks=[{"chowk_id":c["chowk_id"],"chowk_name":c.get("chowk_name",c["chowk_id"]),"vehicles":int(c["vehicles"]),"co2":round(float(c["co2"]),2)} for c in chowks_data]
         co2_gen=co2*4 if co2>0 else 0  # baseline is ~4x the saved amount
         score=round(min(co2/max(co2_gen,0.001)*100,100),1) if co2>0 else 0
         # Format time saved as display string

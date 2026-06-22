@@ -1,7 +1,7 @@
 """ISTSS Backend API v5.0 - PostgreSQL + WhatsApp Baileys Ready
 Datamorphosis Technologies Pvt. Ltd.
 """
-from fastapi import FastAPI,Depends,HTTPException,Query,status
+from fastapi import FastAPI,Depends,HTTPException,Query,Request,status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer,HTTPAuthorizationCredentials
 from pydantic import BaseModel,EmailStr,Field,field_validator
@@ -40,20 +40,28 @@ def get_db():
         yield conn
         conn.commit()
     except Exception as e:
-        if conn:conn.rollback()
+        if conn:
+            try:conn.rollback()
+            except:pass
         print(f"DB Error: {e}")
-        yield None
+        raise
     finally:
-        if conn:conn.close()
+        if conn:
+            try:conn.close()
+            except:pass
 
 def db_exec(sql,params=None,fetch=False):
     if not USE_PG:return None
-    with get_db() as conn:
-        if not conn:return None
-        cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute(sql,params or ())
-        if fetch:return [dict(r) for r in cur.fetchall()]
-        return True
+    try:
+        with get_db() as conn:
+            if not conn:return None
+            cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(sql,params or ())
+            if fetch:return [dict(r) for r in cur.fetchall()]
+            return True
+    except Exception as e:
+        print(f"db_exec error: {e}")
+        return None
 
 def init_db():
     """Create tables if not exists"""
@@ -72,6 +80,7 @@ def init_db():
     """CREATE TABLE IF NOT EXISTS istss_signal_analytics(id VARCHAR(10) PRIMARY KEY,chowk_id VARCHAR(20),city_id VARCHAR(20),date DATE,total_vehicles INT DEFAULT 0,average_waiting_time FLOAT DEFAULT 0,total_waiting_time FLOAT DEFAULT 0,total_time_saved FLOAT DEFAULT 0,signal_cycle_duration FLOAT DEFAULT 0,queue_length INT DEFAULT 0,avg_time_saved_per_vehicle FLOAT DEFAULT 0,created_at TIMESTAMPTZ DEFAULT NOW())""",
     """CREATE TABLE IF NOT EXISTS istss_co2_analytics(id VARCHAR(10) PRIMARY KEY,chowk_id VARCHAR(20),city_id VARCHAR(20),date DATE,total_vehicles INT DEFAULT 0,estimated_co2_generated FLOAT DEFAULT 0,estimated_co2_saved FLOAT DEFAULT 0,fuel_saved FLOAT DEFAULT 0,trees_equivalent FLOAT DEFAULT 0,net_zero_score FLOAT DEFAULT 0,created_at TIMESTAMPTZ DEFAULT NOW())""",
     """CREATE TABLE IF NOT EXISTS istss_settings(key VARCHAR(100) PRIMARY KEY,value JSONB NOT NULL,updated_at TIMESTAMPTZ DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS istss_live_traffic(id VARCHAR(10) PRIMARY KEY,chowk_id VARCHAR(20),device_id VARCHAR(30),total_vehicles INT DEFAULT 0,vehicle_classification JSONB,estimated_co2_kg FLOAT DEFAULT 0,time_saved_seconds FLOAT DEFAULT 0,trees_equivalent FLOAT DEFAULT 0,net_zero_score FLOAT DEFAULT 0,interval_seconds INT DEFAULT 60,created_at TIMESTAMPTZ DEFAULT NOW())""",
     ]
     for sql in sqls:
         try:db_exec(sql)
@@ -83,6 +92,8 @@ def init_db():
         "ALTER TABLE istss_devices ADD COLUMN IF NOT EXISTS tailscale_ip VARCHAR(50) DEFAULT ''",
         "ALTER TABLE istss_devices ADD COLUMN IF NOT EXISTS ssh_user VARCHAR(50) DEFAULT ''",
         "ALTER TABLE istss_devices ADD COLUMN IF NOT EXISTS ssh_password VARCHAR(100) DEFAULT ''",
+        "ALTER TABLE istss_devices ADD COLUMN IF NOT EXISTS heartbeat_data JSONB",
+        "ALTER TABLE istss_live_traffic ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()",
     ]:
         try:db_exec(col)
         except:pass
@@ -244,8 +255,13 @@ async def summary(u:dict=Depends(auth)):
         oc=db_exec(f"SELECT count(*) as c FROM istss_officers {cf}",cp,fetch=True)
         ts=db_exec("SELECT COALESCE(sum(total_time_saved),0) as s FROM istss_signal_analytics",fetch=True)
         co2s=db_exec("SELECT COALESCE(sum(estimated_co2_saved),0) as s FROM istss_co2_analytics",fetch=True)
+        # Also pull today's live traffic totals (deduplicated by minute)
+        live_ts=db_exec("SELECT COALESCE(SUM(mt),0) as s FROM (SELECT MAX(time_saved_seconds) as mt FROM istss_live_traffic WHERE created_at>=CURRENT_DATE GROUP BY date_trunc('minute',created_at),chowk_id) sub",fetch=True)
+        live_co2=db_exec("SELECT COALESCE(SUM(mc),0) as s FROM (SELECT MAX(estimated_co2_kg) as mc FROM istss_live_traffic WHERE created_at>=CURRENT_DATE GROUP BY date_trunc('minute',created_at),chowk_id) sub",fetch=True)
+        time_hrs=round(((ts[0]["s"] if ts else 0)+(live_ts[0]["s"] if live_ts else 0))/3600,1)
+        co2_kg=round((co2s[0]["s"] if co2s else 0)+(live_co2[0]["s"] if live_co2 else 0),1)
         vbt=db_exec("SELECT violation_type,count(*) as c FROM istss_violations GROUP BY violation_type",fetch=True)
-        return {"total_violations":vc[0]["c"] if vc else 0,"new_violations":nc[0]["c"] if nc else 0,"total_devices":dc[0]["c"] if dc else 0,"online_devices":doc[0]["c"] if doc else 0,"total_chowks":cc[0]["c"] if cc else 0,"total_officers":oc[0]["c"] if oc else 0,"violation_by_type":{r["violation_type"]:r["c"] for r in (vbt or [])},"total_time_saved_hours":round((ts[0]["s"] if ts else 0)/3600,1),"total_co2_saved_kg":round(co2s[0]["s"] if co2s else 0,1),"active_alerts":0,"morning_assignments":0,"afternoon_assignments":0,"whatsapp_sent_today":0,"failed_alerts":0,"timestamp":now()}
+        return {"total_violations":vc[0]["c"] if vc else 0,"new_violations":nc[0]["c"] if nc else 0,"total_devices":dc[0]["c"] if dc else 0,"online_devices":doc[0]["c"] if doc else 0,"total_chowks":cc[0]["c"] if cc else 0,"total_officers":oc[0]["c"] if oc else 0,"violation_by_type":{r["violation_type"]:r["c"] for r in (vbt or [])},"total_time_saved_hours":time_hrs,"total_co2_saved_kg":co2_kg,"active_alerts":0,"morning_assignments":0,"afternoon_assignments":0,"whatsapp_sent_today":0,"failed_alerts":0,"timestamp":now()}
     return {"total_violations":0,"new_violations":0,"total_devices":0,"online_devices":0,"total_chowks":0,"total_officers":0,"violation_by_type":{},"total_time_saved_hours":0,"total_co2_saved_kg":0,"active_alerts":0,"timestamp":now()}
 
 # === CHOWKS ===
@@ -326,36 +342,43 @@ def ssh_exec(ip,user,password,cmd,timeout=15):
 
 @app.get("/api/v1/devices/{id}/live-status")
 async def device_live_status(id:str,u:dict=Depends(auth)):
-    """SSH into device and pull real-time system stats"""
+    """Read live status from heartbeat_data stored in DB (push-based architecture)"""
     if not USE_PG:raise HTTPException(400,detail="DB required")
-    rows=db_exec("SELECT tailscale_ip,ssh_user,ssh_password FROM istss_devices WHERE id=%s",(id,),fetch=True)
-    if not rows or not rows[0].get("tailscale_ip"):raise HTTPException(404,detail="Device not found or no Tailscale IP configured")
-    d=rows[0];ip=d["tailscale_ip"];user=d["ssh_user"];pwd=d["ssh_password"]
-    if not user or not pwd:raise HTTPException(400,detail="SSH credentials not configured for this device")
-    # Pull system stats in one SSH session
-    cmd="""python3 -c "
-import json,os,subprocess
-try:
-    import psutil
-    cpu=psutil.cpu_percent(interval=1)
-    mem=psutil.virtual_memory()
-    disk=psutil.disk_usage('/')
-    try:temp=psutil.sensors_temperatures().get('cpu_thermal',[{}])[0].current if hasattr(psutil,'sensors_temperatures') else 0
-    except:temp=0
-    uptime=int((psutil.boot_time()))
-    print(json.dumps({'cpu':cpu,'memory':mem.percent,'disk':disk.percent,'temperature':temp,'total_ram_mb':round(mem.total/1048576),'used_ram_mb':round(mem.used/1048576),'total_disk_gb':round(disk.total/1073741824,1),'used_disk_gb':round(disk.used/1073741824,1),'boot_time':uptime,'hostname':os.uname().nodename,'ip':subprocess.getoutput('hostname -I').strip().split()[0] if subprocess.getoutput('hostname -I').strip() else '','online':True}))
-except Exception as e:
-    print(json.dumps({'error':str(e),'online':False}))
-" 2>/dev/null || echo '{"error":"psutil not installed","online":false}'"""
-    result=ssh_exec(ip,user,pwd,cmd)
-    try:
-        data=json.loads(result)
-        # Update device stats in DB
-        if data.get("online"):
-            db_exec("UPDATE istss_devices SET cpu_percent=%s,memory_percent=%s,temperature=%s,disk_percent=%s,status='online',last_heartbeat=NOW() WHERE id=%s",(data.get("cpu",0),data.get("memory",0),data.get("temperature",0),data.get("disk",0),id))
-        return {"device_id":id,"live":True,"stats":data}
-    except:
-        return {"device_id":id,"live":False,"raw":result,"error":"Could not parse device response"}
+    rows=db_exec("SELECT id,device_id,name,cpu_percent,memory_percent,temperature,disk_percent,status,last_heartbeat,heartbeat_data,tailscale_ip FROM istss_devices WHERE id=%s",(id,),fetch=True)
+    if not rows:raise HTTPException(404,detail="Device not found")
+    d=rows[0]
+    hb=d.get("heartbeat_data") or {}
+    if isinstance(hb,str):
+        try:hb=json.loads(hb)
+        except:hb={}
+    # Check if heartbeat is recent (within 30 seconds)
+    is_online=False
+    if d.get("last_heartbeat"):
+        try:
+            lb=d["last_heartbeat"]
+            if hasattr(lb,'isoformat'):
+                age=(datetime.now(timezone.utc)-lb.replace(tzinfo=timezone.utc if lb.tzinfo is None else lb.tzinfo)).total_seconds()
+                is_online=age<30
+        except:pass
+    stats={
+        "cpu":d.get("cpu_percent",0),
+        "memory":d.get("memory_percent",0),
+        "disk":d.get("disk_percent",0),
+        "temperature":d.get("temperature",0),
+        "online":is_online,
+        "hostname":hb.get("hostname",""),
+        "ip":hb.get("ip",d.get("tailscale_ip","")),
+        "total_ram_mb":hb.get("total_ram_mb",0),
+        "used_ram_mb":hb.get("used_ram_mb",0),
+        "total_disk_gb":hb.get("total_disk_gb",0),
+        "used_disk_gb":hb.get("used_disk_gb",0),
+        "uptime":hb.get("uptime",""),
+        "vehicle_classification":hb.get("vehicle_classification"),
+        "signal_groups":hb.get("signal_groups"),
+        "pa_announcements":hb.get("pa_announcements"),
+        "running_processes":hb.get("running_processes"),
+    }
+    return {"device_id":id,"live":True,"stats":stats}
 
 @app.get("/api/v1/devices/{id}/logs")
 async def device_logs(id:str,lines:int=Query(50,ge=10,le=500),log_file:str=Query("syslog"),u:dict=Depends(auth)):
@@ -365,8 +388,16 @@ async def device_logs(id:str,lines:int=Query(50,ge=10,le=500),log_file:str=Query
     if not rows or not rows[0].get("tailscale_ip"):raise HTTPException(404,detail="Device not found or no Tailscale IP configured")
     d=rows[0];ip=d["tailscale_ip"];user=d["ssh_user"];pwd=d["ssh_password"]
     if not user or not pwd:raise HTTPException(400,detail="SSH credentials not configured")
-    # Safe log file paths
-    safe_logs={"syslog":"/var/log/syslog","istss":"/home/*/istss*.log","traffic":"/home/*/traffic*.log","detection":"/home/*/detection*.log","signal":"/home/*/signal*.log","dmesg":"dmesg"}
+    # Safe log file paths - actual RPi ISTSS log locations
+    safe_logs={
+        "analytics":"/home/pi/Documents/workspace/edge-device-manager/logs/analytics-info.log",
+        "video":"/home/pi/Documents/workspace/edge-device-manager/logs/video-info.log",
+        "info":"/home/pi/Documents/workspace/edge-device-manager/logs/info.log",
+        "error":"/home/pi/Documents/workspace/edge-device-manager/logs/error.log",
+        "pa_service":"/home/pi/Documents/workspace/edge-device-manager/logs/pa_service.log",
+        "syslog":"/var/log/syslog",
+        "dmesg":"dmesg"
+    }
     log_path=safe_logs.get(log_file)
     if not log_path:raise HTTPException(400,detail=f"Invalid log file. Valid: {', '.join(safe_logs.keys())}")
     if log_file=="dmesg":
@@ -394,9 +425,148 @@ async def device_processes(id:str,u:dict=Depends(auth)):
                 processes.append({"user":parts[0],"pid":parts[1],"cpu":parts[2],"mem":parts[3],"command":parts[10]})
     return {"device_id":id,"processes":processes,"raw":result}
 @app.post("/api/v1/devices/heartbeat",status_code=202)
-async def heartbeat(r:HeartbeatReq):
-    if USE_PG:db_exec("UPDATE istss_devices SET cpu_percent=%s,memory_percent=%s,temperature=%s,disk_percent=%s,status=%s,last_heartbeat=NOW() WHERE id=%s",(r.cpu_percent,r.memory_percent,r.temperature,r.disk_percent,"online" if r.network_connected else "offline",r.device_id))
+async def heartbeat(request:Request):
+    try:
+        data=await request.json()
+    except:
+        raise HTTPException(400,detail="Invalid JSON")
+    device_id=data.get("device_id","")
+    if not device_id:raise HTTPException(400,detail="device_id required")
+    cpu=float(data.get("cpu_percent",0))
+    mem=float(data.get("memory_percent",0))
+    temp=float(data.get("temperature",0))
+    disk=float(data.get("disk_percent",0))
+    net=data.get("network_connected",True)
+    status_val="online" if net else "offline"
+    if USE_PG:
+        # Store full heartbeat data as JSONB + update device stats
+        db_exec("UPDATE istss_devices SET cpu_percent=%s,memory_percent=%s,temperature=%s,disk_percent=%s,status=%s,last_heartbeat=NOW(),heartbeat_data=%s WHERE id=%s",
+            (cpu,mem,temp,disk,status_val,json.dumps(data),device_id))
+        # Auto-insert into istss_live_traffic if vehicle_classification present
+        vc=data.get("vehicle_classification")
+        if vc and isinstance(vc,dict):
+            # Use RPi's total field to avoid signal group double-counting
+            total=int(vc.get("total",0))
+            if total==0:
+                # Fallback: sum known vehicle types
+                total=int(vc.get("Car",0))+int(vc.get("Motorcycle",0))+int(vc.get("Bus",0))+int(vc.get("Truck",0))+int(vc.get("Bicycle",0))
+            cars=int(vc.get("Car",0));bikes=int(vc.get("Motorcycle",0));buses=int(vc.get("Bus",0));trucks=int(vc.get("Truck",0))
+            # CO2 saved: (vehicles × emission_factor_per_second × avg_time_saved_15s) / 1000 → kg
+            co2_kg=round((cars*2.3+bikes*1.0+buses*8.0+trucks*6.0)*15/1000,4)
+            time_saved=total*15  # 15 seconds saved per vehicle vs fixed timing
+            trees=round(co2_kg/21.77,2) if co2_kg>0 else 0
+            co2_gen=(cars*2.3+bikes*1.0+buses*8.0+trucks*6.0)*60/1000  # baseline 60s fixed
+            score=round(min(co2_kg/max(co2_gen,0.001)*100,100),1)
+            chowk_id=data.get("chowk_id","CHK001")
+            tid=uid()
+            try:
+                db_exec("INSERT INTO istss_live_traffic(id,chowk_id,device_id,total_vehicles,vehicle_classification,estimated_co2_kg,time_saved_seconds,trees_equivalent,net_zero_score,interval_seconds,created_at) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())",
+                    (tid,chowk_id,device_id,total,json.dumps(vc),co2_kg,time_saved,trees,score,int(data.get("interval_seconds",60))))
+            except Exception as e:
+                print(f"Traffic insert error: {e}")
     return {"message":"Recorded"}
+
+# === LIVE TRAFFIC ===
+@app.post("/api/v1/traffic/live",status_code=201)
+async def post_traffic(request:Request):
+    """Direct push endpoint for live traffic data (no auth for RPi)"""
+    try:
+        data=await request.json()
+    except:
+        raise HTTPException(400,detail="Invalid JSON")
+    chowk_id=data.get("chowk_id","CHK001")
+    device_id=data.get("device_id","unknown")
+    cars=int(data.get("cars",0));bikes=int(data.get("two_wheelers",data.get("motorcycles",0)))
+    buses=int(data.get("buses",0));trucks=int(data.get("trucks",0));bicycles=int(data.get("bicycles",0))
+    autos=int(data.get("auto_rickshaws",0))
+    total=cars+bikes+buses+trucks+bicycles+autos
+    vc={"Car":cars,"Motorcycle":bikes,"Bus":buses,"Truck":trucks,"Bicycle":bicycles,"Auto":autos,"total":total}
+    co2_kg=round((cars*2.3+bikes*1.0+buses*8.0+trucks*6.0)*15/1000,4)
+    time_saved=total*15
+    trees=round(co2_kg/21.77,2) if co2_kg>0 else 0
+    co2_gen=(cars*2.3+bikes*1.0+buses*8.0+trucks*6.0)*60/1000
+    score=round(min(co2_kg/max(co2_gen,0.001)*100,100),1)
+    tid=uid()
+    interval=int(data.get("interval_seconds",60))
+    if USE_PG:
+        db_exec("INSERT INTO istss_live_traffic(id,chowk_id,device_id,total_vehicles,vehicle_classification,estimated_co2_kg,time_saved_seconds,trees_equivalent,net_zero_score,interval_seconds,created_at) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())",
+            (tid,chowk_id,device_id,total,json.dumps(vc),co2_kg,time_saved,trees,score,interval))
+    return {"message":"Recorded","id":tid,"total_vehicles":total,"co2_kg":co2_kg}
+
+@app.get("/api/v1/traffic/live")
+async def get_traffic_live(limit:int=Query(50,ge=1,le=500),u:dict=Depends(auth)):
+    """Get recent live traffic records"""
+    if USE_PG:
+        rows=db_exec("SELECT * FROM istss_live_traffic ORDER BY created_at DESC LIMIT %s",(limit,),fetch=True) or []
+        return {"records":[{**r,"created_at":str(r.get("created_at","")),"vehicle_classification":r.get("vehicle_classification") if isinstance(r.get("vehicle_classification"),dict) else json.loads(r["vehicle_classification"]) if r.get("vehicle_classification") else {}} for r in rows],"total":len(rows)}
+    return {"records":[],"total":0}
+
+@app.get("/api/v1/traffic/summary")
+async def traffic_summary(u:dict=Depends(auth)):
+    """Aggregated daily traffic summary — deduplicated by minute to avoid 5-second heartbeat recounting"""
+    if not USE_PG:return {"vehicles_today":0,"co2_saved_kg":0,"time_saved_hours":0,"trees_equivalent":0,"net_zero_score":0,"vehicle_classification":{},"hourly_trend":[],"chowks":[]}
+    try:
+        # Deduplicate: MAX per minute then SUM — avoids counting same snapshot multiple times
+        day_sql="""
+            SELECT COALESCE(SUM(mv),0) as vehicles, COALESCE(SUM(mc),0) as co2,
+                   COALESCE(SUM(mt),0) as time_saved, COALESCE(SUM(mtr),0) as trees
+            FROM (
+                SELECT MAX(total_vehicles) as mv, MAX(estimated_co2_kg) as mc,
+                       MAX(time_saved_seconds) as mt, MAX(trees_equivalent) as mtr
+                FROM istss_live_traffic
+                WHERE created_at >= CURRENT_DATE
+                GROUP BY date_trunc('minute', created_at), chowk_id
+            ) sub
+        """
+        day=db_exec(day_sql,fetch=True)
+        vehicles=int(day[0]["vehicles"]) if day and day[0].get("vehicles") else 0
+        co2=round(float(day[0]["co2"]) if day and day[0].get("co2") else 0,2)
+        ts=float(day[0]["time_saved"]) if day and day[0].get("time_saved") else 0
+        trees=round(float(day[0]["trees"]) if day and day[0].get("trees") else 0,2)
+        # Latest classification breakdown
+        latest=db_exec("SELECT vehicle_classification FROM istss_live_traffic WHERE created_at >= CURRENT_DATE ORDER BY created_at DESC LIMIT 1",fetch=True)
+        vc={}
+        if latest and latest[0].get("vehicle_classification"):
+            raw=latest[0]["vehicle_classification"]
+            if isinstance(raw,str):
+                try:raw=json.loads(raw)
+                except:raw={}
+            vc={k:v for k,v in raw.items() if k!="total"} if isinstance(raw,dict) else {}
+        # Hourly trend
+        hourly_sql="""
+            SELECT date_trunc('hour',created_at) as hour,
+                   COALESCE(SUM(mv),0) as vehicles, COALESCE(SUM(mc),0) as co2
+            FROM (
+                SELECT date_trunc('hour',created_at) as h, date_trunc('minute',created_at) as m, chowk_id,
+                       MAX(total_vehicles) as mv, MAX(estimated_co2_kg) as mc
+                FROM istss_live_traffic WHERE created_at >= CURRENT_DATE
+                GROUP BY date_trunc('hour',created_at), date_trunc('minute',created_at), chowk_id
+            ) sub GROUP BY date_trunc('hour',created_at) ORDER BY hour
+        """
+        hourly=db_exec(hourly_sql,fetch=True) or []
+        trend=[{"hour":str(h.get("hour","")),"vehicles":int(h["vehicles"]),"co2":round(float(h["co2"]),2)} for h in hourly]
+        # Per-chowk breakdown
+        chowk_sql="""
+            SELECT chowk_id, COALESCE(SUM(mv),0) as vehicles, COALESCE(SUM(mc),0) as co2
+            FROM (
+                SELECT chowk_id, date_trunc('minute',created_at) as m,
+                       MAX(total_vehicles) as mv, MAX(estimated_co2_kg) as mc
+                FROM istss_live_traffic WHERE created_at >= CURRENT_DATE
+                GROUP BY chowk_id, date_trunc('minute',created_at)
+            ) sub GROUP BY chowk_id
+        """
+        chowks_data=db_exec(chowk_sql,fetch=True) or []
+        chowks=[{"chowk_id":c["chowk_id"],"vehicles":int(c["vehicles"]),"co2":round(float(c["co2"]),2)} for c in chowks_data]
+        co2_gen=co2*4 if co2>0 else 0  # baseline is ~4x the saved amount
+        score=round(min(co2/max(co2_gen,0.001)*100,100),1) if co2>0 else 0
+        return {
+            "vehicles_today":vehicles,"co2_saved_kg":co2,"time_saved_hours":round(ts/3600,1),
+            "trees_equivalent":trees,"net_zero_score":score,
+            "vehicle_classification":vc,"hourly_trend":trend,"chowks":chowks
+        }
+    except Exception as e:
+        print(f"Traffic summary error: {e}")
+        return {"vehicles_today":0,"co2_saved_kg":0,"time_saved_hours":0,"trees_equivalent":0,"net_zero_score":0,"vehicle_classification":{},"hourly_trend":[],"chowks":[],"error":str(e)}
 
 # === VIOLATIONS ===
 @app.get("/api/v1/violations")
@@ -608,6 +778,6 @@ async def put_setting(key:str,body:Dict[str,Any],u:dict=Depends(auth)):
     return {"message":"Setting saved","key":key}
 
 @app.get("/health")
-async def health():return {"status":"healthy","version":"5.0.0","db_mode":"postgresql" if USE_PG else "in-memory","endpoints":55,"timestamp":now()}
+async def health():return {"status":"healthy","version":"5.1.0","db_mode":"postgresql" if USE_PG else "in-memory","endpoints":58,"timestamp":now()}
 @app.get("/")
-async def root():return {"service":"ISTSS API","version":"5.0.0","company":"Datamorphosis Technologies Pvt. Ltd.","docs":"/api/docs","db":"postgresql" if USE_PG else "in-memory","endpoints":55}
+async def root():return {"service":"ISTSS API","version":"5.1.0","company":"Datamorphosis Technologies Pvt. Ltd.","docs":"/api/docs","db":"postgresql" if USE_PG else "in-memory","endpoints":58}

@@ -513,7 +513,7 @@ async def get_traffic_live(limit:int=Query(50,ge=1,le=500),u:dict=Depends(auth))
 @app.get("/api/v1/traffic/summary")
 async def traffic_summary(u:dict=Depends(auth)):
     """Aggregated daily traffic summary — deduplicated by minute to avoid 5-second heartbeat recounting"""
-    if not USE_PG:return {"vehicles_today":0,"co2_saved_kg":0,"time_saved_hours":0,"trees_equivalent":0,"net_zero_score":0,"vehicle_classification":{},"hourly_trend":[],"chowks":[]}
+    if not USE_PG:return {"total_vehicles":0,"co2_saved_kg":0,"time_saved_hours":0,"time_saved_display":"0m","trees_equivalent":0,"net_zero_score":0,"active_chowks":0,"vehicle_classification":{},"hourly_trend":[],"chowks":[]}
     try:
         # Deduplicate: MAX per minute then SUM — avoids counting same snapshot multiple times
         day_sql="""
@@ -568,14 +568,22 @@ async def traffic_summary(u:dict=Depends(auth)):
         chowks=[{"chowk_id":c["chowk_id"],"vehicles":int(c["vehicles"]),"co2":round(float(c["co2"]),2)} for c in chowks_data]
         co2_gen=co2*4 if co2>0 else 0  # baseline is ~4x the saved amount
         score=round(min(co2/max(co2_gen,0.001)*100,100),1) if co2>0 else 0
+        # Format time saved as display string
+        ts_hrs=ts/3600
+        if ts_hrs>=1:
+            time_disp=f"{int(ts_hrs)}h {int((ts_hrs%1)*60)}m"
+        elif ts>0:
+            time_disp=f"{int(ts/60)}m"
+        else:
+            time_disp="0m"
         return {
-            "vehicles_today":vehicles,"co2_saved_kg":co2,"time_saved_hours":round(ts/3600,1),
-            "trees_equivalent":trees,"net_zero_score":score,
-            "vehicle_classification":vc,"hourly_trend":trend,"chowks":chowks
+            "total_vehicles":vehicles,"co2_saved_kg":co2,"time_saved_hours":round(ts_hrs,1),
+            "time_saved_display":time_disp,"trees_equivalent":trees,"net_zero_score":score,
+            "active_chowks":len(chowks),"vehicle_classification":vc,"hourly_trend":trend,"chowks":chowks
         }
     except Exception as e:
         print(f"Traffic summary error: {e}")
-        return {"vehicles_today":0,"co2_saved_kg":0,"time_saved_hours":0,"trees_equivalent":0,"net_zero_score":0,"vehicle_classification":{},"hourly_trend":[],"chowks":[],"error":str(e)}
+        return {"total_vehicles":0,"co2_saved_kg":0,"time_saved_hours":0,"time_saved_display":"0m","trees_equivalent":0,"net_zero_score":0,"active_chowks":0,"vehicle_classification":{},"hourly_trend":[],"chowks":[],"error":str(e)}
 
 # === VIOLATIONS ===
 @app.get("/api/v1/violations")

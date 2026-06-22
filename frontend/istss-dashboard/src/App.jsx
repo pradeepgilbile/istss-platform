@@ -169,15 +169,7 @@ const App=()=>{
   },[token,api]);
 
   useEffect(()=>{if(screen==="main"){load();loadMcFromApi();}},[screen,load,loadMcFromApi]);
-  useEffect(()=>{
-    document.title="ISTSS — Datamorphosis Technologies";
-    // Security: add meta tags
-    if(!document.querySelector('meta[http-equiv="Content-Security-Policy"]')){
-      const csp=document.createElement("meta");csp.httpEquiv="Content-Security-Policy";
-      csp.content="default-src 'self' https://istss-api-dev.azurewebsites.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'";
-      document.head.appendChild(csp);
-    }
-  },[]);
+  useEffect(()=>{document.title="ISTSS — Datamorphosis Technologies";},[]);
 
   // Live Traffic state
   const[trafficSummary,setTrafficSummary]=useState({});

@@ -11,7 +11,7 @@ from contextlib import contextmanager
 import uuid,jwt,re,hashlib,os,json
 
 app=FastAPI(title="ISTSS API",version="5.0.0",docs_url="/api/docs")
-app.add_middleware(CORSMiddleware,allow_origins=["https://ambitious-river-096774200.7.azurestaticapps.net","http://localhost:5173","http://localhost:3000"],allow_credentials=True,allow_methods=["*"],allow_headers=["*"])
+app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_credentials=True,allow_methods=["*"],allow_headers=["*"])
 security=HTTPBearer()
 
 # Security headers middleware

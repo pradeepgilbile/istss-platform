@@ -131,7 +131,7 @@ const App=()=>{
     const r=await fetch(`${API}${path}`,{...opts,headers:h});
     if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||r.statusText);}
     return r.json();
-  },[token]);
+  },[token,trafficPeriod]);
 
   const flash=(m)=>{setMsg(m);setTimeout(()=>setMsg(""),3000);};
 
@@ -169,18 +169,27 @@ const App=()=>{
   },[token,api]);
 
   useEffect(()=>{if(screen==="main"){load();loadMcFromApi();}},[screen,load,loadMcFromApi]);
-  useEffect(()=>{document.title="ISTSS — Datamorphosis Technologies";},[]);
+  useEffect(()=>{
+    document.title="ISTSS — Datamorphosis Technologies";
+    // Security: add meta tags
+    if(!document.querySelector('meta[http-equiv="Content-Security-Policy"]')){
+      const csp=document.createElement("meta");csp.httpEquiv="Content-Security-Policy";
+      csp.content="default-src 'self' https://istss-api-dev.azurewebsites.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'";
+      document.head.appendChild(csp);
+    }
+  },[]);
 
   // Live Traffic state
   const[trafficSummary,setTrafficSummary]=useState({});
   const[trafficRecords,setTrafficRecords]=useState([]);
   const[trafficLoading,setTrafficLoading]=useState(false);
   const[trafficAutoRefresh,setTrafficAutoRefresh]=useState(true);
+  const[trafficPeriod,setTrafficPeriod]=useState("day");
   const loadTraffic=useCallback(async()=>{
     if(!token)return;
     setTrafficLoading(true);
     try{
-      const[s,r]=await Promise.all([api("/api/v1/traffic/summary"),api("/api/v1/traffic/live?limit=20")]);
+      const[s,r]=await Promise.all([api(`/api/v1/traffic/summary?period=${trafficPeriod}`),api("/api/v1/traffic/live?limit=20")]);
       setTrafficSummary(s);setTrafficRecords(r.records||[]);
     }catch(e){console.error("Traffic load error:",e);}
     finally{setTrafficLoading(false);}
@@ -347,6 +356,9 @@ const App=()=>{
             .card{margin-bottom:10px !important}
             .form-card{margin-bottom:10px !important}
             .page-content{overflow:hidden;min-width:0}
+            @media(max-width:1024px){.kpi-grid{grid-template-columns:repeat(2,1fr) !important}.sidebar{width:200px !important}}
+            @media(max-width:768px){.kpi-grid{grid-template-columns:1fr !important}.sidebar{position:fixed;z-index:1000;transform:translateX(-100%);transition:transform .3s}.sidebar.open{transform:translateX(0)}.main-content{margin-left:0 !important}}
+            @media(max-width:480px){.kpi-card{padding:8px !important}.kpi-value{font-size:18px !important}.authority-officials{grid-template-columns:1fr !important}.topbar{flex-wrap:wrap;gap:4px !important}}
           `}</style>
           <div className="page-enter">
 
@@ -366,9 +378,10 @@ const App=()=>{
 
 {/* ════════════════ DASHBOARD ════════════════ */}
 {page==="live_traffic"&&<div>
-  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
     <h3 style={{margin:0,fontSize:16}}>Live Traffic Intelligence</h3>
     <div style={{display:"flex",alignItems:"center",gap:10}}>
+      <div style={{display:"flex",gap:4}}>{["day","week","month"].map(p=><button key={p} onClick={()=>{setTrafficPeriod(p);}} className={`btn btn-sm ${trafficPeriod===p?"btn-primary":"btn-ghost"}`} style={{fontSize:10,padding:"2px 8px",textTransform:"capitalize"}}>{p}</button>)}</div>
       <label style={{fontSize:12,display:"flex",alignItems:"center",gap:4}}><input type="checkbox" checked={trafficAutoRefresh} onChange={e=>setTrafficAutoRefresh(e.target.checked)}/>Auto-refresh (30s)</label>
       <button onClick={loadTraffic} className="btn btn-primary btn-sm" disabled={trafficLoading}>{trafficLoading?"Loading...":"Refresh"}</button>
     </div>

@@ -105,6 +105,8 @@ def init_db():
         "ALTER TABLE istss_live_traffic ADD COLUMN IF NOT EXISTS device_id VARCHAR(30)",
         # Migrate CHK001 test records to actual device's registered chowk
         "UPDATE istss_live_traffic SET chowk_id=(SELECT chowk_id FROM istss_devices WHERE id=istss_live_traffic.device_id LIMIT 1) WHERE chowk_id='CHK001' AND device_id IS NOT NULL AND EXISTS(SELECT 1 FROM istss_devices WHERE id=istss_live_traffic.device_id AND chowk_id IS NOT NULL)",
+        # Add chowk code column for display alias
+        "ALTER TABLE istss_chowks ADD COLUMN IF NOT EXISTS code VARCHAR(30) DEFAULT ''",
     ]:
         try:db_exec(col)
         except:pass
@@ -571,6 +573,7 @@ async def traffic_summary(u:dict=Depends(auth)):
         # Per-chowk breakdown — join with chowks table for names
         chowk_sql="""
             SELECT sub.chowk_id, COALESCE(c.name, sub.chowk_id) as chowk_name,
+                   COALESCE(NULLIF(c.code,''), sub.chowk_id) as chowk_code,
                    COALESCE(SUM(mv),0) as vehicles, COALESCE(SUM(mc),0) as co2
             FROM (
                 SELECT chowk_id, date_trunc('minute',created_at) as m,
@@ -578,10 +581,10 @@ async def traffic_summary(u:dict=Depends(auth)):
                 FROM istss_live_traffic WHERE created_at >= CURRENT_DATE
                 GROUP BY chowk_id, date_trunc('minute',created_at)
             ) sub LEFT JOIN istss_chowks c ON c.id=sub.chowk_id
-            GROUP BY sub.chowk_id, c.name
+            GROUP BY sub.chowk_id, c.name, c.code
         """
         chowks_data=db_exec(chowk_sql,fetch=True) or []
-        chowks=[{"chowk_id":c["chowk_id"],"chowk_name":c.get("chowk_name",c["chowk_id"]),"vehicles":int(c["vehicles"]),"co2":round(float(c["co2"]),2)} for c in chowks_data]
+        chowks=[{"chowk_id":c["chowk_id"],"chowk_name":c.get("chowk_name",c["chowk_id"]),"chowk_code":c.get("chowk_code",c["chowk_id"]),"vehicles":int(c["vehicles"]),"co2":round(float(c["co2"]),2)} for c in chowks_data]
         co2_gen=co2*4 if co2>0 else 0  # baseline is ~4x the saved amount
         score=round(min(co2/max(co2_gen,0.001)*100,100),1) if co2>0 else 0
         # Format time saved as display string

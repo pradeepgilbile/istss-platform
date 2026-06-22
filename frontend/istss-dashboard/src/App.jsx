@@ -117,7 +117,7 @@ const App=()=>{
         if(h>maxH){w=w*(maxH/h);h=maxH;}
         canvas.width=w;canvas.height=h;
         canvas.getContext("2d").drawImage(img,0,0,w,h);
-        resolve(canvas.toDataURL("image/jpeg",0.85));
+        resolve(canvas.toDataURL("image/jpeg",0.5));
       };
       img.src=e.target.result;
     };
@@ -194,7 +194,7 @@ const App=()=>{
 
   /* ─── Components use form/setForm passed as props ─── */
 
-  const tickerText="ISTSS Platform — Datamorphosis Technologies Pvt. Ltd.  ◈  Smart Traffic Signal System — Real-time Monitoring  ◈  Powered by AI & Edge Computing  ◈  ";
+  const tickerText="ISTSS Platform — Datamorphosis Technologies Pvt. Ltd.  ◈  Intelligent Smart Traffic Signal System — Real-time Monitoring  ◈  Powered by AI & Edge Computing  ◈  ";
 
   /* ════════════════ AUTH: LOGIN ════════════════ */
   if(screen==="login")return(
@@ -203,7 +203,7 @@ const App=()=>{
         <div className="auth-header">
           <img src="/favicon.svg" alt="DM"/>
           <h1>ISTSS Platform</h1>
-          <p>Smart Traffic Signal System</p>
+          <p>Intelligent Smart Traffic Signal System</p>
         </div>
         <div className="auth-body">
           <label>Email Address</label>
@@ -396,7 +396,7 @@ const App=()=>{
     <ResponsiveContainer width="100%" height={200}><AreaChart data={trafficSummary.hourly_trend}><CartesianGrid strokeDasharray="3 3" stroke="var(--border-primary)"/><XAxis dataKey="hour" fontSize={9} tickFormatter={h=>{try{return new Date(h).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}catch(e){return h}}}/><YAxis fontSize={10}/><Tooltip/><Area type="monotone" dataKey="vehicles" stroke="#7c3aed" fill="#7c3aed" fillOpacity={0.15}/></AreaChart></ResponsiveContainer>
   </div>}
   {trafficSummary.chowks&&trafficSummary.chowks.length>0&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10,marginBottom:16}}>
-    {trafficSummary.chowks.map((c,i)=><div key={i} className="stat-card" style={{padding:10}}><div style={{fontSize:11,color:"var(--text-secondary)",marginBottom:2}}>{c.chowk_name||c.chowk_id}</div><div style={{fontSize:20,fontWeight:700}}>{c.vehicles} <span style={{fontSize:11,fontWeight:400}}>vehicles</span></div><div style={{fontSize:11,color:"#22c55e"}}>{c.co2} kg CO₂ saved</div></div>)}
+    {trafficSummary.chowks.map((c,i)=><div key={i} className="stat-card" style={{padding:10}}><div style={{fontSize:12,fontWeight:600,color:"var(--text-primary)",marginBottom:2}}>{c.chowk_name||c.chowk_id}</div>{c.chowk_code&&c.chowk_code!==c.chowk_id&&<div style={{fontSize:9,color:"var(--accent-primary)",fontWeight:600,letterSpacing:1,marginBottom:4}}>{c.chowk_code}</div>}<div style={{fontSize:20,fontWeight:700}}>{c.vehicles} <span style={{fontSize:11,fontWeight:400}}>vehicles</span></div><div style={{fontSize:11,color:"#22c55e"}}>{c.co2} kg CO₂ saved</div></div>)}
   </div>}
   <div className="card" style={{padding:14}}>
     <h4 style={{margin:"0 0 8px",fontSize:13}}>Recent Records</h4>
@@ -430,7 +430,7 @@ const App=()=>{
             {mcForm.mc_logo_url&&<img src={mcForm.mc_logo_url} alt="Logo" style={{width:48,height:48,borderRadius:"50%",objectFit:"cover",border:"2px solid var(--border-primary)"}}/>}
             <label className="btn btn-ghost btn-sm" style={{cursor:"pointer",marginBottom:0}}>
               {mcForm.mc_logo_url?"Change Logo":"Upload Logo"}
-              <input type="file" accept="image/*" style={{display:"none"}} onChange={async(e)=>{const f=e.target.files[0];if(!f)return;const b64=await handleImageUpload(f,200,200);setMcForm({...mcForm,mc_logo_url:b64});}}/>
+              <input type="file" accept="image/*" style={{display:"none"}} onChange={async(e)=>{const f=e.target.files[0];if(!f)return;const b64=await handleImageUpload(f,100,100);setMcForm({...mcForm,mc_logo_url:b64});}}/>
             </label>
             {mcForm.mc_logo_url&&<button onClick={()=>setMcForm({...mcForm,mc_logo_url:""})} className="btn btn-danger btn-sm">Remove</button>}
           </div>
@@ -455,7 +455,7 @@ const App=()=>{
               {off.photo_url&&<img src={off.photo_url} alt={off.name||"Official"} style={{width:44,height:44,borderRadius:"50%",objectFit:"cover",border:"2px solid var(--border-primary)"}}/>}
               <label className="btn btn-ghost btn-sm" style={{cursor:"pointer",marginBottom:0}}>
                 {off.photo_url?"Change Photo":"Upload Photo"}
-                <input type="file" accept="image/*" style={{display:"none"}} onChange={async(e)=>{const f=e.target.files[0];if(!f)return;const b64=await handleImageUpload(f,160,160);const o=[...mcForm.officials];o[i]={...o[i],photo_url:b64};setMcForm({...mcForm,officials:o});}}/>
+                <input type="file" accept="image/*" style={{display:"none"}} onChange={async(e)=>{const f=e.target.files[0];if(!f)return;const b64=await handleImageUpload(f,64,64);const o=[...mcForm.officials];o[i]={...o[i],photo_url:b64};setMcForm({...mcForm,officials:o});}}/>
               </label>
               {off.photo_url&&<button onClick={()=>{const o=[...mcForm.officials];o[i]={...o[i],photo_url:""};setMcForm({...mcForm,officials:o});}} className="btn btn-danger btn-sm">Remove</button>}
             </div>
@@ -478,7 +478,7 @@ const App=()=>{
           </div>
           <div className="mc-info">
             <h2>{mcConfig.mc_name||"Municipal Corporation"}</h2>
-            <h3>{mcConfig.mc_subtitle||"ISTSS — Smart Traffic Signal System"}</h3>
+            <h3>{mcConfig.mc_subtitle||"ISTSS — Intelligent Smart Traffic Signal System"}</h3>
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:10}}>

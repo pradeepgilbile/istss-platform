@@ -48,6 +48,7 @@ const KPI=({label,value,color,emoji})=>(
 );
 const navItems=[
   {id:"dashboard",label:"Dashboard",icon:"dashboard"},
+  {id:"live_traffic",label:"Live Traffic",icon:"analytics"},
   {id:"chowks",label:"Chowks",icon:"chowks"},
   {id:"devices",label:"Devices",icon:"devices"},
   {id:"violations",label:"Violations",icon:"violations"},
@@ -168,6 +169,24 @@ const App=()=>{
   },[token,api]);
 
   useEffect(()=>{if(screen==="main"){load();loadMcFromApi();}},[screen,load,loadMcFromApi]);
+  useEffect(()=>{document.title="ISTSS — Datamorphosis Technologies";},[]);
+
+  // Live Traffic state
+  const[trafficSummary,setTrafficSummary]=useState({});
+  const[trafficRecords,setTrafficRecords]=useState([]);
+  const[trafficLoading,setTrafficLoading]=useState(false);
+  const[trafficAutoRefresh,setTrafficAutoRefresh]=useState(true);
+  const loadTraffic=useCallback(async()=>{
+    if(!token)return;
+    setTrafficLoading(true);
+    try{
+      const[s,r]=await Promise.all([api("/api/v1/traffic/summary"),api("/api/v1/traffic/live?limit=20")]);
+      setTrafficSummary(s);setTrafficRecords(r.records||[]);
+    }catch(e){console.error("Traffic load error:",e);}
+    finally{setTrafficLoading(false);}
+  },[token]);
+  useEffect(()=>{if(screen==="main"&&page==="live_traffic"){loadTraffic();}},[screen,page,loadTraffic]);
+  useEffect(()=>{if(trafficAutoRefresh&&page==="live_traffic"){const iv=setInterval(loadTraffic,30000);return()=>clearInterval(iv);}},[trafficAutoRefresh,page,loadTraffic]);
 
   const crud=async(method,path,body)=>{
     try{const r=await api(path,{method,body:body?JSON.stringify(body):undefined});flash(r.message||"Done");setForm({});setEditId(null);load();}catch(e){flash("Error: "+e.message);}
@@ -266,7 +285,7 @@ const App=()=>{
           </div>
         </div>
         <nav className="sidebar-nav">
-          {navItems.map(n=>(
+          {(()=>{const r=user?.role;const restricted=["live_traffic","chowks","devices","violations","officers","assignments","evidence","cctv"];const items=r==="super_admin"?navItems:navItems.filter(n=>restricted.includes(n.id));return items;})().map(n=>(
             <button key={n.id} onClick={()=>setPage(n.id)} className={`nav-item${page===n.id?" active":""}`}>
               <span className="nav-icon">{I[n.icon]}</span>{n.label}
             </button>
@@ -293,22 +312,105 @@ const App=()=>{
           </div>
         </div>
 
+        {/* Marquee Ticker */}
+        <div style={{background:"linear-gradient(90deg,#0B1426,#1a2744)",color:"#0EA5E9",fontSize:12,fontWeight:500,overflow:"hidden",whiteSpace:"nowrap",padding:"4px 0",letterSpacing:1}}>
+          <div style={{display:"inline-block",animation:"marquee 30s linear infinite"}}>{tickerText}{tickerText}</div>
+        </div>
+        <style>{`@keyframes marquee{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}`}</style>
+
         {/* Top Bar */}
-        <header className="topbar">
-          <h2>{navItems.find(n=>n.id===page)?.label||"Dashboard"}</h2>
-          <div className="topbar-actions">
+        <header className="topbar" style={{padding:"6px 20px",gap:8}}>
+          <h2 style={{fontSize:16,margin:0}}>{navItems.find(n=>n.id===page)?.label||"Dashboard"}</h2>
+          {mcConfig.mc_name&&<span style={{background:"#0EA5E9",color:"#fff",padding:"2px 12px",borderRadius:12,fontSize:11,fontWeight:600,letterSpacing:.5}}>{mcConfig.mc_name}</span>}
+          <div className="topbar-actions" style={{gap:6}}>
             {msg&&<span className="flash-msg">{msg}</span>}
             <button onClick={()=>setDark(!dark)} className="btn-icon" title="Toggle theme">{dark?I.sun:I.moon}</button>
             <button onClick={load} className="btn-icon" title="Refresh data">{I.refresh}</button>
-            <div className="badge-live">LIVE</div>
+            <div className="badge-live" style={{fontSize:11,padding:"2px 10px"}}>● LIVE</div>
           </div>
         </header>
 
         {/* Page Content */}
-        <main className="page-content" key={page}>
+        <main className="page-content" key={page} style={{padding:"10px 16px",overflow:"hidden",minWidth:0}}>
+          <style>{`
+            .authority-banner{margin-bottom:12px !important;padding:10px 16px !important}
+            .authority-banner-top{padding:6px 0 !important}
+            .authority-officials{padding:8px 0 !important;gap:12px !important}
+            .official-card{padding:6px !important;gap:8px !important}
+            .official-photo img,.official-photo-placeholder{width:48px !important;height:48px !important;font-size:20px !important}
+            .official-name{font-size:13px !important}
+            .official-role{font-size:9px !important}
+            .official-desg{font-size:10px !important}
+            .mc-info h2{font-size:16px !important}
+            .mc-info h3{font-size:11px !important}
+            .mc-logo img,.mc-logo-placeholder{width:44px !important;height:44px !important}
+            .dm-branding{padding:4px 12px !important;font-size:10px !important}
+            .kpi-grid{gap:8px !important;margin-bottom:12px !important}
+            .stat-card{padding:10px !important}
+            .stat-label{font-size:9px !important}
+            .stat-value{font-size:22px !important}
+            .card{margin-bottom:10px !important}
+            .form-card{margin-bottom:10px !important}
+            .page-content{overflow:hidden;min-width:0}
+          `}</style>
           <div className="page-enter">
 
+{/* MC Authority Panel — shown on non-dashboard pages */}
+{page!=="dashboard"&&mcHasData&&!mcEditing&&<div className="authority-banner" style={{marginBottom:10}}>
+  <div className="authority-banner-top">
+    <div className="mc-branding">
+      <div className="mc-logo">{mcConfig.mc_logo_url?<img src={mcConfig.mc_logo_url} alt="MC"/>:<span className="mc-logo-placeholder">🏛️</span>}</div>
+      <div className="mc-info"><h2>{mcConfig.mc_name||"Municipal Corporation"}</h2><h3>{mcConfig.mc_subtitle||"ISTSS"}</h3></div>
+    </div>
+    {user?.role==="super_admin"&&<button onClick={()=>{setMcForm(mcConfig);setMcEditing(true);setPage("dashboard");}} className="btn btn-sm" style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"1px solid rgba(255,255,255,0.25)",fontSize:10}}>✎ Edit</button>}
+  </div>
+  {mcConfig.officials.some(o=>o.name)&&<div className="authority-officials" style={{gridTemplateColumns:`repeat(${mcConfig.officials.filter(o=>o.name).length},1fr)`}}>
+    {mcConfig.officials.filter(o=>o.name).map((off,i)=><div key={i} className="official-card"><div className="official-photo">{off.photo_url?<img src={off.photo_url} alt={off.name}/>:<span className="official-photo-placeholder">👤</span>}</div><div><div className="official-role">{off.role}</div><div className="official-name">{off.name}</div>{off.designation&&<div className="official-desg">{off.designation}</div>}</div></div>)}
+  </div>}
+</div>}
+
 {/* ════════════════ DASHBOARD ════════════════ */}
+{page==="live_traffic"&&<div>
+  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+    <h3 style={{margin:0,fontSize:16}}>Live Traffic Intelligence</h3>
+    <div style={{display:"flex",alignItems:"center",gap:10}}>
+      <label style={{fontSize:12,display:"flex",alignItems:"center",gap:4}}><input type="checkbox" checked={trafficAutoRefresh} onChange={e=>setTrafficAutoRefresh(e.target.checked)}/>Auto-refresh (30s)</label>
+      <button onClick={loadTraffic} className="btn btn-primary btn-sm" disabled={trafficLoading}>{trafficLoading?"Loading...":"Refresh"}</button>
+    </div>
+  </div>
+  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+    <div className="stat-card" style={{padding:12}}><div className="stat-label" style={{fontSize:10,marginBottom:2}}>VEHICLES TODAY</div><div className="stat-value" style={{fontSize:26}}>{trafficSummary.total_vehicles||0}</div></div>
+    <div className="stat-card" style={{padding:12}}><div className="stat-label" style={{fontSize:10,marginBottom:2}}>CO₂ SAVED</div><div className="stat-value" style={{fontSize:26}}>{trafficSummary.co2_saved_kg||0} kg</div></div>
+    <div className="stat-card" style={{padding:12}}><div className="stat-label" style={{fontSize:10,marginBottom:2}}>TIME SAVED</div><div className="stat-value" style={{fontSize:26}}>{trafficSummary.time_saved_display||"0m"}</div></div>
+    <div className="stat-card" style={{padding:12}}><div className="stat-label" style={{fontSize:10,marginBottom:2}}>TREES EQUIVALENT</div><div className="stat-value" style={{fontSize:26}}>{trafficSummary.trees_equivalent||0}</div></div>
+    <div className="stat-card" style={{padding:12}}><div className="stat-label" style={{fontSize:10,marginBottom:2}}>ACTIVE CHOWKS</div><div className="stat-value" style={{fontSize:26}}>{trafficSummary.active_chowks||0}</div></div>
+    <div className="stat-card" style={{padding:12}}><div className="stat-label" style={{fontSize:10,marginBottom:2}}>NET ZERO SCORE</div><div className="stat-value" style={{fontSize:26}}>{trafficSummary.net_zero_score||0}%</div></div>
+  </div>
+  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
+    <div className="card" style={{padding:14}}>
+      <h4 style={{margin:"0 0 8px",fontSize:13}}>Vehicle Classification</h4>
+      {(()=>{const vc=trafficSummary.vehicle_classification||{};const data=Object.entries(vc).filter(([k,v])=>v>0).map(([k,v])=>({name:k,value:v}));return data.length>0?<ResponsiveContainer width="100%" height={180}><PieChart><Pie data={data} cx="50%" cy="50%" innerRadius={40} outerRadius={70} dataKey="value" paddingAngle={3} label={({name,value})=>`${name}:${value}`}>{data.map((_,i)=><Cell key={i} fill={chartColors[i%7]}/>)}</Pie></PieChart></ResponsiveContainer>:<p style={{color:"var(--text-tertiary)",textAlign:"center",padding:30,fontSize:13}}>No classification data yet</p>;})()}
+    </div>
+    <div className="card" style={{padding:14}}>
+      <h4 style={{margin:"0 0 8px",fontSize:13}}>CO₂ Saved by Vehicle Type (kg)</h4>
+      {(()=>{const vc=trafficSummary.vehicle_classification||{};const data=Object.entries(vc).filter(([k,v])=>v>0).map(([k,v])=>({type:k,co2:Math.round(v*(k==="Car"?2.3:k==="Motorcycle"?1.0:k==="Bus"?8.0:k==="Truck"?6.0:0)*15/1000*100)/100})).filter(d=>d.co2>0);return data.length>0?<ResponsiveContainer width="100%" height={180}><BarChart data={data}><CartesianGrid strokeDasharray="3 3" stroke="var(--border-primary)"/><XAxis dataKey="type" fontSize={10}/><YAxis fontSize={10}/><Tooltip/><Bar dataKey="co2" fill="#22c55e" radius={[4,4,0,0]}>{data.map((_,i)=><Cell key={i} fill={chartColors[i%7]}/>)}</Bar></BarChart></ResponsiveContainer>:<p style={{color:"var(--text-tertiary)",textAlign:"center",padding:30,fontSize:13}}>No CO₂ data yet</p>;})()}
+    </div>
+  </div>
+  {trafficSummary.hourly_trend&&trafficSummary.hourly_trend.length>0&&<div className="card" style={{padding:14,marginBottom:16}}>
+    <h4 style={{margin:"0 0 8px",fontSize:13}}>Hourly Traffic Trend</h4>
+    <ResponsiveContainer width="100%" height={200}><AreaChart data={trafficSummary.hourly_trend}><CartesianGrid strokeDasharray="3 3" stroke="var(--border-primary)"/><XAxis dataKey="hour" fontSize={9} tickFormatter={h=>{try{return new Date(h).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}catch(e){return h}}}/><YAxis fontSize={10}/><Tooltip/><Area type="monotone" dataKey="vehicles" stroke="#7c3aed" fill="#7c3aed" fillOpacity={0.15}/></AreaChart></ResponsiveContainer>
+  </div>}
+  {trafficSummary.chowks&&trafficSummary.chowks.length>0&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10,marginBottom:16}}>
+    {trafficSummary.chowks.map((c,i)=><div key={i} className="stat-card" style={{padding:10}}><div style={{fontSize:11,color:"var(--text-secondary)",marginBottom:2}}>Chowk: {c.chowk_id}</div><div style={{fontSize:20,fontWeight:700}}>{c.vehicles} <span style={{fontSize:11,fontWeight:400}}>vehicles</span></div><div style={{fontSize:11,color:"#22c55e"}}>{c.co2} kg CO₂ saved</div></div>)}
+  </div>}
+  <div className="card" style={{padding:14}}>
+    <h4 style={{margin:"0 0 8px",fontSize:13}}>Recent Records</h4>
+    <div className="table-wrap"><table className="data-table"><thead><tr><th>Time</th><th>Chowk</th><th>Total</th><th>Cars</th><th>2W</th><th>Bus</th><th>Truck</th></tr></thead><tbody>
+      {trafficRecords.slice(0,10).map((r,i)=>{const vc=r.vehicle_classification||{};return <tr key={i}><td>{r.created_at?new Date(r.created_at).toLocaleTimeString():"-"}</td><td>{r.chowk_id}</td><td>{r.total_vehicles}</td><td>{vc.Car||0}</td><td>{vc.Motorcycle||0}</td><td>{vc.Bus||0}</td><td>{vc.Truck||0}</td></tr>})}
+    </tbody></table></div>
+  </div>
+</div>}
+
 {page==="dashboard"&&<div>
 
   {/* ─── Dynamic Municipal Corporation Authority Panel ─── */}

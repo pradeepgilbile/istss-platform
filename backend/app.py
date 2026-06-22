@@ -532,25 +532,33 @@ async def traffic_summary(u:dict=Depends(auth)):
         co2=round(float(day[0]["co2"]) if day and day[0].get("co2") else 0,2)
         ts=float(day[0]["time_saved"]) if day and day[0].get("time_saved") else 0
         trees=round(float(day[0]["trees"]) if day and day[0].get("trees") else 0,2)
-        # Latest classification breakdown
-        latest=db_exec("SELECT vehicle_classification FROM istss_live_traffic WHERE created_at >= CURRENT_DATE ORDER BY created_at DESC LIMIT 1",fetch=True)
-        vc={}
-        if latest and latest[0].get("vehicle_classification"):
-            raw=latest[0]["vehicle_classification"]
+        # Latest classification breakdown — aggregate across day, not just latest snapshot
+        vc_sql="""
+            SELECT vehicle_classification FROM istss_live_traffic
+            WHERE created_at >= CURRENT_DATE AND vehicle_classification IS NOT NULL
+            ORDER BY created_at DESC LIMIT 50
+        """
+        vc_rows=db_exec(vc_sql,fetch=True) or []
+        vc_totals={}
+        for row in vc_rows:
+            raw=row.get("vehicle_classification") or {}
             if isinstance(raw,str):
                 try:raw=json.loads(raw)
                 except:raw={}
-            vc={k:v for k,v in raw.items() if k!="total"} if isinstance(raw,dict) else {}
+            if isinstance(raw,dict):
+                for k,v in raw.items():
+                    if k!="total" and isinstance(v,(int,float)):
+                        vc_totals[k]=vc_totals.get(k,0)+int(v)
+        vc=vc_totals if vc_totals else {}
         # Hourly trend
         hourly_sql="""
-            SELECT date_trunc('hour',created_at) as hour,
-                   COALESCE(SUM(mv),0) as vehicles, COALESCE(SUM(mc),0) as co2
+            SELECT h as hour, COALESCE(SUM(mv),0) as vehicles, COALESCE(SUM(mc),0) as co2
             FROM (
                 SELECT date_trunc('hour',created_at) as h, date_trunc('minute',created_at) as m, chowk_id,
                        MAX(total_vehicles) as mv, MAX(estimated_co2_kg) as mc
                 FROM istss_live_traffic WHERE created_at >= CURRENT_DATE
                 GROUP BY date_trunc('hour',created_at), date_trunc('minute',created_at), chowk_id
-            ) sub GROUP BY date_trunc('hour',created_at) ORDER BY hour
+            ) sub GROUP BY h ORDER BY hour
         """
         hourly=db_exec(hourly_sql,fetch=True) or []
         trend=[{"hour":str(h.get("hour","")),"vehicles":int(h["vehicles"]),"co2":round(float(h["co2"]),2)} for h in hourly]

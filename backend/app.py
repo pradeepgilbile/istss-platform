@@ -11,9 +11,25 @@ from contextlib import contextmanager
 import uuid,jwt,re,hashlib,os,json
 
 app=FastAPI(title="ISTSS API",version="5.0.0",docs_url="/api/docs")
-app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_credentials=True,allow_methods=["*"],allow_headers=["*"])
+app.add_middleware(CORSMiddleware,allow_origins=["https://ambitious-river-096774200.7.azurestaticapps.net","http://localhost:5173","http://localhost:3000"],allow_credentials=True,allow_methods=["*"],allow_headers=["*"])
 security=HTTPBearer()
+
+# Security headers middleware
+from starlette.middleware.base import BaseHTTPMiddleware
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Cache-Control"] = "no-store" if "/api/" in str(request.url) else "public, max-age=3600"
+        return response
+app.add_middleware(SecurityHeadersMiddleware)
 SECRET="istss-jwt-secret-2026"
+_login_attempts={}  # IP-based rate limiting
 
 # --- DATABASE ---
 DB_CONFIG={
@@ -234,7 +250,13 @@ class HeartbeatReq(BaseModel):
 
 # === AUTH ===
 @app.post("/api/v1/auth/login")
-async def login(r:LoginReq):
+async def login(r:LoginReq,request:Request):
+    # Rate limiting: max 5 attempts per IP per minute
+    ip=request.client.host if request.client else "unknown"
+    now_ts=datetime.now(timezone.utc).timestamp()
+    _login_attempts[ip]=[t for t in _login_attempts.get(ip,[]) if now_ts-t<60]
+    if len(_login_attempts.get(ip,[]))>=5:raise HTTPException(429,detail="Too many login attempts. Try again in 60 seconds.")
+    _login_attempts.setdefault(ip,[]).append(now_ts)
     if r.email=="admin@datamorphosis.in":
         log_audit("admin","login","auth",{"email":r.email})
         return {"access_token":make_jwt("admin","super_admin"),"user":{"id":"admin","name":"Super Admin","email":r.email,"role":"super_admin"}}
@@ -519,90 +541,41 @@ async def get_traffic_live(limit:int=Query(50,ge=1,le=500),u:dict=Depends(auth))
     return {"records":[],"total":0}
 
 @app.get("/api/v1/traffic/summary")
-async def traffic_summary(u:dict=Depends(auth)):
-    """Aggregated daily traffic summary — deduplicated by minute to avoid 5-second heartbeat recounting"""
-    if not USE_PG:return {"total_vehicles":0,"co2_saved_kg":0,"time_saved_hours":0,"time_saved_display":"0m","trees_equivalent":0,"net_zero_score":0,"active_chowks":0,"vehicle_classification":{},"hourly_trend":[],"chowks":[]}
+async def traffic_summary(period:str=Query("day"),u:dict=Depends(auth)):
+    """Aggregated traffic summary — deduplicated by minute. period=day|week|month"""
+    empty={"total_vehicles":0,"co2_saved_kg":0,"time_saved_hours":0,"time_saved_display":"0m","trees_equivalent":0,"net_zero_score":0,"active_chowks":0,"vehicle_classification":{},"hourly_trend":[],"chowks":[],"period":period}
+    if not USE_PG:return empty
     try:
-        # Deduplicate: MAX per minute then SUM — avoids counting same snapshot multiple times
-        day_sql="""
-            SELECT COALESCE(SUM(mv),0) as vehicles, COALESCE(SUM(mc),0) as co2,
-                   COALESCE(SUM(mt),0) as time_saved, COALESCE(SUM(mtr),0) as trees
-            FROM (
-                SELECT MAX(total_vehicles) as mv, MAX(estimated_co2_kg) as mc,
-                       MAX(time_saved_seconds) as mt, MAX(trees_equivalent) as mtr
-                FROM istss_live_traffic
-                WHERE created_at >= CURRENT_DATE
-                GROUP BY date_trunc('minute', created_at), chowk_id
-            ) sub
-        """
-        day=db_exec(day_sql,fetch=True)
+        # Date filter based on period
+        if period=="month":df="created_at >= date_trunc('month', CURRENT_DATE)"
+        elif period=="week":df="created_at >= CURRENT_DATE - INTERVAL '7 days'"
+        else:df="created_at >= CURRENT_DATE"
+        # Deduplicate: MAX per minute then SUM
+        day=db_exec(f"SELECT COALESCE(SUM(mv),0) as vehicles,COALESCE(SUM(mc),0) as co2,COALESCE(SUM(mt),0) as time_saved,COALESCE(SUM(mtr),0) as trees FROM (SELECT MAX(total_vehicles) as mv,MAX(estimated_co2_kg) as mc,MAX(time_saved_seconds) as mt,MAX(trees_equivalent) as mtr FROM istss_live_traffic WHERE {df} GROUP BY date_trunc('minute',created_at),chowk_id) sub",fetch=True)
         vehicles=int(day[0]["vehicles"]) if day and day[0].get("vehicles") else 0
         co2=round(float(day[0]["co2"]) if day and day[0].get("co2") else 0,2)
         ts=float(day[0]["time_saved"]) if day and day[0].get("time_saved") else 0
         trees=round(float(day[0]["trees"]) if day and day[0].get("trees") else 0,2)
-        # Latest classification breakdown — aggregate across day, not just latest snapshot
-        vc_sql="""
-            SELECT vehicle_classification FROM istss_live_traffic
-            WHERE created_at >= CURRENT_DATE AND vehicle_classification IS NOT NULL
-            ORDER BY created_at DESC LIMIT 50
-        """
-        vc_rows=db_exec(vc_sql,fetch=True) or []
-        vc_totals={}
-        for row in vc_rows:
-            raw=row.get("vehicle_classification") or {}
-            if isinstance(raw,str):
-                try:raw=json.loads(raw)
-                except:raw={}
-            if isinstance(raw,dict):
-                for k,v in raw.items():
-                    if k!="total" and isinstance(v,(int,float)):
-                        vc_totals[k]=vc_totals.get(k,0)+int(v)
-        vc=vc_totals if vc_totals else {}
-        # Hourly trend
-        hourly_sql="""
-            SELECT h as hour, COALESCE(SUM(mv),0) as vehicles, COALESCE(SUM(mc),0) as co2
-            FROM (
-                SELECT date_trunc('hour',created_at) as h, date_trunc('minute',created_at) as m, chowk_id,
-                       MAX(total_vehicles) as mv, MAX(estimated_co2_kg) as mc
-                FROM istss_live_traffic WHERE created_at >= CURRENT_DATE
-                GROUP BY date_trunc('hour',created_at), date_trunc('minute',created_at), chowk_id
-            ) sub GROUP BY h ORDER BY hour
-        """
-        hourly=db_exec(hourly_sql,fetch=True) or []
-        trend=[{"hour":str(h.get("hour","")),"vehicles":int(h["vehicles"]),"co2":round(float(h["co2"]),2)} for h in hourly]
-        # Per-chowk breakdown — join with chowks table for names
-        chowk_sql="""
-            SELECT sub.chowk_id, COALESCE(c.name, sub.chowk_id) as chowk_name,
-                   COALESCE(NULLIF(c.code,''), sub.chowk_id) as chowk_code,
-                   COALESCE(SUM(mv),0) as vehicles, COALESCE(SUM(mc),0) as co2
-            FROM (
-                SELECT chowk_id, date_trunc('minute',created_at) as m,
-                       MAX(total_vehicles) as mv, MAX(estimated_co2_kg) as mc
-                FROM istss_live_traffic WHERE created_at >= CURRENT_DATE
-                GROUP BY chowk_id, date_trunc('minute',created_at)
-            ) sub LEFT JOIN istss_chowks c ON c.id=sub.chowk_id
-            GROUP BY sub.chowk_id, c.name, c.code
-        """
-        chowks_data=db_exec(chowk_sql,fetch=True) or []
-        chowks=[{"chowk_id":c["chowk_id"],"chowk_name":c.get("chowk_name",c["chowk_id"]),"chowk_code":c.get("chowk_code",c["chowk_id"]),"vehicles":int(c["vehicles"]),"co2":round(float(c["co2"]),2)} for c in chowks_data]
-        co2_gen=co2*4 if co2>0 else 0  # baseline is ~4x the saved amount
-        score=round(min(co2/max(co2_gen,0.001)*100,100),1) if co2>0 else 0
-        # Format time saved as display string
-        ts_hrs=ts/3600
-        if ts_hrs>=1:
-            time_disp=f"{int(ts_hrs)}h {int((ts_hrs%1)*60)}m"
-        elif ts>0:
-            time_disp=f"{int(ts/60)}m"
+        # Vehicle classification — full period aggregate via SQL (deduplicated by minute)
+        vc_data=db_exec(f"SELECT COALESCE(SUM(COALESCE((vc->>'Car')::int,0)),0) as \"Car\",COALESCE(SUM(COALESCE((vc->>'Motorcycle')::int,0)),0) as \"Motorcycle\",COALESCE(SUM(COALESCE((vc->>'Bus')::int,0)),0) as \"Bus\",COALESCE(SUM(COALESCE((vc->>'Truck')::int,0)),0) as \"Truck\",COALESCE(SUM(COALESCE((vc->>'Bicycle')::int,0)),0) as \"Bicycle\" FROM (SELECT DISTINCT ON (date_trunc('minute',created_at),chowk_id) vehicle_classification as vc FROM istss_live_traffic WHERE {df} AND vehicle_classification IS NOT NULL ORDER BY date_trunc('minute',created_at),chowk_id,total_vehicles DESC) sub",fetch=True)
+        vc={k:int(v) for k,v in (vc_data[0].items() if vc_data and vc_data[0] else {}.items()) if v and int(v)>0}
+        # Trend: hourly for day, daily for week/month
+        if period=="day":
+            tunit="hour"
         else:
-            time_disp="0m"
-        return {
-            "total_vehicles":vehicles,"co2_saved_kg":co2,"time_saved_hours":round(ts_hrs,1),
-            "time_saved_display":time_disp,"trees_equivalent":trees,"net_zero_score":score,
-            "active_chowks":len(chowks),"vehicle_classification":vc,"hourly_trend":trend,"chowks":chowks
-        }
+            tunit="day"
+        hourly=db_exec(f"SELECT t as hour,COALESCE(SUM(mv),0) as vehicles,COALESCE(SUM(mc),0) as co2 FROM (SELECT date_trunc('{tunit}',created_at) as t,date_trunc('minute',created_at) as m,chowk_id,MAX(total_vehicles) as mv,MAX(estimated_co2_kg) as mc FROM istss_live_traffic WHERE {df} GROUP BY date_trunc('{tunit}',created_at),date_trunc('minute',created_at),chowk_id) sub GROUP BY t ORDER BY hour",fetch=True) or []
+        trend=[{"hour":str(h.get("hour","")),"vehicles":int(h["vehicles"]),"co2":round(float(h["co2"]),2)} for h in hourly]
+        # Per-chowk breakdown
+        chowks_data=db_exec(f"SELECT sub.chowk_id,COALESCE(c.name,sub.chowk_id) as chowk_name,COALESCE(NULLIF(c.code,''),sub.chowk_id) as chowk_code,COALESCE(SUM(mv),0) as vehicles,COALESCE(SUM(mc),0) as co2 FROM (SELECT chowk_id,date_trunc('minute',created_at) as m,MAX(total_vehicles) as mv,MAX(estimated_co2_kg) as mc FROM istss_live_traffic WHERE {df} GROUP BY chowk_id,date_trunc('minute',created_at)) sub LEFT JOIN istss_chowks c ON c.id=sub.chowk_id GROUP BY sub.chowk_id,c.name,c.code",fetch=True) or []
+        chowks=[{"chowk_id":c["chowk_id"],"chowk_name":c.get("chowk_name",c["chowk_id"]),"chowk_code":c.get("chowk_code",c["chowk_id"]),"vehicles":int(c["vehicles"]),"co2":round(float(c["co2"]),2)} for c in chowks_data]
+        co2_gen=co2*4 if co2>0 else 0;score=round(min(co2/max(co2_gen,0.001)*100,100),1) if co2>0 else 0
+        ts_hrs=ts/3600
+        time_disp=f"{int(ts_hrs)}h {int((ts_hrs%1)*60)}m" if ts_hrs>=1 else (f"{int(ts/60)}m" if ts>0 else "0m")
+        return {"total_vehicles":vehicles,"co2_saved_kg":co2,"time_saved_hours":round(ts_hrs,1),"time_saved_display":time_disp,"trees_equivalent":trees,"net_zero_score":score,"active_chowks":len(chowks),"vehicle_classification":vc,"hourly_trend":trend,"chowks":chowks,"period":period}
     except Exception as e:
         print(f"Traffic summary error: {e}")
-        return {"total_vehicles":0,"co2_saved_kg":0,"time_saved_hours":0,"time_saved_display":"0m","trees_equivalent":0,"net_zero_score":0,"active_chowks":0,"vehicle_classification":{},"hourly_trend":[],"chowks":[],"error":str(e)}
+        return {**empty,"error":str(e)}
 
 # === VIOLATIONS ===
 @app.get("/api/v1/violations")

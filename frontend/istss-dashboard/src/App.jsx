@@ -373,13 +373,13 @@ const App=()=>{
       <button onClick={loadTraffic} className="btn btn-primary btn-sm" disabled={trafficLoading}>{trafficLoading?"Loading...":"Refresh"}</button>
     </div>
   </div>
-  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
-    <div className="stat-card" style={{padding:12}}><div className="stat-label" style={{fontSize:10,marginBottom:2}}>VEHICLES TODAY</div><div className="stat-value" style={{fontSize:26}}>{trafficSummary.total_vehicles||0}</div></div>
-    <div className="stat-card" style={{padding:12}}><div className="stat-label" style={{fontSize:10,marginBottom:2}}>CO₂ SAVED</div><div className="stat-value" style={{fontSize:26}}>{trafficSummary.co2_saved_kg||0} kg</div></div>
-    <div className="stat-card" style={{padding:12}}><div className="stat-label" style={{fontSize:10,marginBottom:2}}>TIME SAVED</div><div className="stat-value" style={{fontSize:26}}>{trafficSummary.time_saved_display||"0m"}</div></div>
-    <div className="stat-card" style={{padding:12}}><div className="stat-label" style={{fontSize:10,marginBottom:2}}>TREES EQUIVALENT</div><div className="stat-value" style={{fontSize:26}}>{trafficSummary.trees_equivalent||0}</div></div>
-    <div className="stat-card" style={{padding:12}}><div className="stat-label" style={{fontSize:10,marginBottom:2}}>ACTIVE CHOWKS</div><div className="stat-value" style={{fontSize:26}}>{trafficSummary.active_chowks||0}</div></div>
-    <div className="stat-card" style={{padding:12}}><div className="stat-label" style={{fontSize:10,marginBottom:2}}>NET ZERO SCORE</div><div className="stat-value" style={{fontSize:26}}>{trafficSummary.net_zero_score||0}%</div></div>
+  <div className="kpi-grid" style={{marginBottom:12}}>
+    <KPI label="Vehicles Today" value={trafficSummary.total_vehicles||0} color="#3b82f6" emoji="🚗"/>
+    <KPI label="CO₂ Saved" value={`${trafficSummary.co2_saved_kg||0} kg`} color="#22c55e" emoji="🌿"/>
+    <KPI label="Time Saved" value={trafficSummary.time_saved_display||"0m"} color="#7c3aed" emoji="⏱️"/>
+    <KPI label="Trees Equivalent" value={trafficSummary.trees_equivalent||0} color="#10b981" emoji="🌳"/>
+    <KPI label="Active Chowks" value={trafficSummary.active_chowks||0} color="#f59e0b" emoji="🚦"/>
+    <KPI label="Net Zero Score" value={`${trafficSummary.net_zero_score||0}%`} color="#0ea5e9" emoji="🎯"/>
   </div>
   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
     <div className="card" style={{padding:14}}>
@@ -396,7 +396,7 @@ const App=()=>{
     <ResponsiveContainer width="100%" height={200}><AreaChart data={trafficSummary.hourly_trend}><CartesianGrid strokeDasharray="3 3" stroke="var(--border-primary)"/><XAxis dataKey="hour" fontSize={9} tickFormatter={h=>{try{return new Date(h).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}catch(e){return h}}}/><YAxis fontSize={10}/><Tooltip/><Area type="monotone" dataKey="vehicles" stroke="#7c3aed" fill="#7c3aed" fillOpacity={0.15}/></AreaChart></ResponsiveContainer>
   </div>}
   {trafficSummary.chowks&&trafficSummary.chowks.length>0&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10,marginBottom:16}}>
-    {trafficSummary.chowks.map((c,i)=><div key={i} className="stat-card" style={{padding:10}}><div style={{fontSize:11,color:"var(--text-secondary)",marginBottom:2}}>Chowk: {c.chowk_id}</div><div style={{fontSize:20,fontWeight:700}}>{c.vehicles} <span style={{fontSize:11,fontWeight:400}}>vehicles</span></div><div style={{fontSize:11,color:"#22c55e"}}>{c.co2} kg CO₂ saved</div></div>)}
+    {trafficSummary.chowks.map((c,i)=><div key={i} className="stat-card" style={{padding:10}}><div style={{fontSize:11,color:"var(--text-secondary)",marginBottom:2}}>{c.chowk_name||c.chowk_id}</div><div style={{fontSize:20,fontWeight:700}}>{c.vehicles} <span style={{fontSize:11,fontWeight:400}}>vehicles</span></div><div style={{fontSize:11,color:"#22c55e"}}>{c.co2} kg CO₂ saved</div></div>)}
   </div>}
   <div className="card" style={{padding:14}}>
     <h4 style={{margin:"0 0 8px",fontSize:13}}>Recent Records</h4>

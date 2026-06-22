@@ -312,11 +312,6 @@ const App=()=>{
           </div>
         </div>
 
-        {/* Marquee Ticker */}
-        <div style={{background:"linear-gradient(90deg,#0B1426,#1a2744)",color:"#0EA5E9",fontSize:12,fontWeight:500,overflow:"hidden",whiteSpace:"nowrap",padding:"4px 0",letterSpacing:1}}>
-          <div style={{display:"inline-block",animation:"marquee 30s linear infinite"}}>{tickerText}{tickerText}</div>
-        </div>
-        <style>{`@keyframes marquee{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}`}</style>
 
         {/* Top Bar */}
         <header className="topbar" style={{padding:"6px 20px",gap:8}}>

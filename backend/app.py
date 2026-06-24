@@ -133,9 +133,6 @@ async def startup():init_db();print(f"DB Mode: {'PostgreSQL' if USE_PG else 'In-
 # --- HELPERS ---
 def now():return datetime.now(timezone.utc).isoformat()
 def uid():return str(uuid.uuid4())[:8]
-def phase_cte(df):
-    """CTE for green-phase dedup: detects phase boundaries when total_vehicles drops (count resets each green phase)."""
-    return f"WITH ordered AS (SELECT *,LAG(total_vehicles) OVER (PARTITION BY device_id ORDER BY created_at) as prev_total FROM istss_live_traffic WHERE {df}), phases AS (SELECT *,SUM(CASE WHEN prev_total IS NULL OR total_vehicles<prev_total THEN 1 ELSE 0 END) OVER (PARTITION BY device_id ORDER BY created_at) as phase_id FROM ordered)"
 def make_jwt(uid,role,city_id="all"):return jwt.encode({"sub":uid,"role":role,"city_id":city_id,"exp":datetime.now(timezone.utc)+timedelta(hours=12)},SECRET,algorithm="HS256")
 def decode(token):
     try:return jwt.decode(token,SECRET,algorithms=["HS256"])
@@ -293,10 +290,9 @@ async def summary(u:dict=Depends(auth)):
         oc=db_exec(f"SELECT count(*) as c FROM istss_officers {cf}",cp,fetch=True)
         ts=db_exec("SELECT COALESCE(sum(total_time_saved),0) as s FROM istss_signal_analytics",fetch=True)
         co2s=db_exec("SELECT COALESCE(sum(estimated_co2_saved),0) as s FROM istss_co2_analytics",fetch=True)
-        # Pull today's live traffic totals (deduplicated by green phase)
-        _df="created_at>=CURRENT_DATE"
-        live_ts=db_exec(f"{phase_cte(_df)} SELECT COALESCE(SUM(mt),0) as s FROM (SELECT MAX(time_saved_seconds) as mt FROM phases GROUP BY device_id,phase_id) sub",fetch=True)
-        live_co2=db_exec(f"{phase_cte(_df)} SELECT COALESCE(SUM(mc),0) as s FROM (SELECT MAX(estimated_co2_kg) as mc FROM phases GROUP BY device_id,phase_id) sub",fetch=True)
+        # Also pull today's live traffic totals (deduplicated by minute)
+        live_ts=db_exec("SELECT COALESCE(SUM(mt),0) as s FROM (SELECT MAX(time_saved_seconds) as mt FROM istss_live_traffic WHERE created_at>=CURRENT_DATE GROUP BY date_trunc('minute',created_at),chowk_id) sub",fetch=True)
+        live_co2=db_exec("SELECT COALESCE(SUM(mc),0) as s FROM (SELECT MAX(estimated_co2_kg) as mc FROM istss_live_traffic WHERE created_at>=CURRENT_DATE GROUP BY date_trunc('minute',created_at),chowk_id) sub",fetch=True)
         time_hrs=round(((ts[0]["s"] if ts else 0)+(live_ts[0]["s"] if live_ts else 0))/3600,1)
         co2_kg=round((co2s[0]["s"] if co2s else 0)+(live_co2[0]["s"] if live_co2 else 0),1)
         vbt=db_exec("SELECT violation_type,count(*) as c FROM istss_violations GROUP BY violation_type",fetch=True)
@@ -546,7 +542,7 @@ async def get_traffic_live(limit:int=Query(50,ge=1,le=500),u:dict=Depends(auth))
 
 @app.get("/api/v1/traffic/summary")
 async def traffic_summary(period:str=Query("day"),u:dict=Depends(auth)):
-    """Aggregated traffic summary — deduplicated by green phase. period=day|week|month"""
+    """Aggregated traffic summary — deduplicated by minute. period=day|week|month"""
     empty={"total_vehicles":0,"co2_saved_kg":0,"time_saved_hours":0,"time_saved_display":"0m","trees_equivalent":0,"net_zero_score":0,"active_chowks":0,"vehicle_classification":{},"hourly_trend":[],"chowks":[],"period":period}
     if not USE_PG:return empty
     try:
@@ -554,25 +550,24 @@ async def traffic_summary(period:str=Query("day"),u:dict=Depends(auth)):
         if period=="month":df="created_at >= date_trunc('month', CURRENT_DATE)"
         elif period=="week":df="created_at >= CURRENT_DATE - INTERVAL '7 days'"
         else:df="created_at >= CURRENT_DATE"
-        cte=phase_cte(df)
-        # Deduplicate: MAX per green phase then SUM
-        day=db_exec(f"{cte} SELECT COALESCE(SUM(mv),0) as vehicles,COALESCE(SUM(mc),0) as co2,COALESCE(SUM(mt),0) as time_saved,COALESCE(SUM(mtr),0) as trees FROM (SELECT MAX(total_vehicles) as mv,MAX(estimated_co2_kg) as mc,MAX(time_saved_seconds) as mt,MAX(trees_equivalent) as mtr FROM phases GROUP BY device_id,phase_id) sub",fetch=True)
+        # Deduplicate: MAX per minute then SUM
+        day=db_exec(f"SELECT COALESCE(SUM(mv),0) as vehicles,COALESCE(SUM(mc),0) as co2,COALESCE(SUM(mt),0) as time_saved,COALESCE(SUM(mtr),0) as trees FROM (SELECT MAX(total_vehicles) as mv,MAX(estimated_co2_kg) as mc,MAX(time_saved_seconds) as mt,MAX(trees_equivalent) as mtr FROM istss_live_traffic WHERE {df} GROUP BY date_trunc('minute',created_at),chowk_id) sub",fetch=True)
         vehicles=int(day[0]["vehicles"]) if day and day[0].get("vehicles") else 0
         co2=round(float(day[0]["co2"]) if day and day[0].get("co2") else 0,2)
         ts=float(day[0]["time_saved"]) if day and day[0].get("time_saved") else 0
         trees=round(float(day[0]["trees"]) if day and day[0].get("trees") else 0,2)
-        # Vehicle classification — full period aggregate (deduplicated by green phase: pick row with MAX total per phase)
-        vc_data=db_exec(f"{cte} SELECT COALESCE(SUM(COALESCE((vc->>'Car')::int,0)),0) as \"Car\",COALESCE(SUM(COALESCE((vc->>'Motorcycle')::int,0)),0) as \"Motorcycle\",COALESCE(SUM(COALESCE((vc->>'Bus')::int,0)),0) as \"Bus\",COALESCE(SUM(COALESCE((vc->>'Truck')::int,0)),0) as \"Truck\",COALESCE(SUM(COALESCE((vc->>'Bicycle')::int,0)),0) as \"Bicycle\" FROM (SELECT DISTINCT ON (device_id,phase_id) vehicle_classification as vc FROM phases WHERE vehicle_classification IS NOT NULL ORDER BY device_id,phase_id,total_vehicles DESC) sub",fetch=True)
+        # Vehicle classification — full period aggregate via SQL (deduplicated by minute)
+        vc_data=db_exec(f"SELECT COALESCE(SUM(COALESCE((vc->>'Car')::int,0)),0) as \"Car\",COALESCE(SUM(COALESCE((vc->>'Motorcycle')::int,0)),0) as \"Motorcycle\",COALESCE(SUM(COALESCE((vc->>'Bus')::int,0)),0) as \"Bus\",COALESCE(SUM(COALESCE((vc->>'Truck')::int,0)),0) as \"Truck\",COALESCE(SUM(COALESCE((vc->>'Bicycle')::int,0)),0) as \"Bicycle\" FROM (SELECT DISTINCT ON (date_trunc('minute',created_at),chowk_id) vehicle_classification as vc FROM istss_live_traffic WHERE {df} AND vehicle_classification IS NOT NULL ORDER BY date_trunc('minute',created_at),chowk_id,total_vehicles DESC) sub",fetch=True)
         vc={k:int(v) for k,v in (vc_data[0].items() if vc_data and vc_data[0] else {}.items()) if v and int(v)>0}
         # Trend: hourly for day, daily for week/month
         if period=="day":
             tunit="hour"
         else:
             tunit="day"
-        hourly=db_exec(f"{cte} SELECT t as hour,COALESCE(SUM(mv),0) as vehicles,COALESCE(SUM(mc),0) as co2 FROM (SELECT date_trunc('{tunit}',created_at) as t,device_id,phase_id,MAX(total_vehicles) as mv,MAX(estimated_co2_kg) as mc FROM phases GROUP BY date_trunc('{tunit}',created_at),device_id,phase_id) sub GROUP BY t ORDER BY hour",fetch=True) or []
+        hourly=db_exec(f"SELECT t as hour,COALESCE(SUM(mv),0) as vehicles,COALESCE(SUM(mc),0) as co2 FROM (SELECT date_trunc('{tunit}',created_at) as t,date_trunc('minute',created_at) as m,chowk_id,MAX(total_vehicles) as mv,MAX(estimated_co2_kg) as mc FROM istss_live_traffic WHERE {df} GROUP BY date_trunc('{tunit}',created_at),date_trunc('minute',created_at),chowk_id) sub GROUP BY t ORDER BY hour",fetch=True) or []
         trend=[{"hour":str(h.get("hour","")),"vehicles":int(h["vehicles"]),"co2":round(float(h["co2"]),2)} for h in hourly]
         # Per-chowk breakdown
-        chowks_data=db_exec(f"{cte} SELECT sub.chowk_id,COALESCE(c.name,sub.chowk_id) as chowk_name,COALESCE(NULLIF(c.code,''),sub.chowk_id) as chowk_code,COALESCE(SUM(mv),0) as vehicles,COALESCE(SUM(mc),0) as co2 FROM (SELECT chowk_id,device_id,phase_id,MAX(total_vehicles) as mv,MAX(estimated_co2_kg) as mc FROM phases GROUP BY chowk_id,device_id,phase_id) sub LEFT JOIN istss_chowks c ON c.id=sub.chowk_id GROUP BY sub.chowk_id,c.name,c.code",fetch=True) or []
+        chowks_data=db_exec(f"SELECT sub.chowk_id,COALESCE(c.name,sub.chowk_id) as chowk_name,COALESCE(NULLIF(c.code,''),sub.chowk_id) as chowk_code,COALESCE(SUM(mv),0) as vehicles,COALESCE(SUM(mc),0) as co2 FROM (SELECT chowk_id,date_trunc('minute',created_at) as m,MAX(total_vehicles) as mv,MAX(estimated_co2_kg) as mc FROM istss_live_traffic WHERE {df} GROUP BY chowk_id,date_trunc('minute',created_at)) sub LEFT JOIN istss_chowks c ON c.id=sub.chowk_id GROUP BY sub.chowk_id,c.name,c.code",fetch=True) or []
         chowks=[{"chowk_id":c["chowk_id"],"chowk_name":c.get("chowk_name",c["chowk_id"]),"chowk_code":c.get("chowk_code",c["chowk_id"]),"vehicles":int(c["vehicles"]),"co2":round(float(c["co2"]),2)} for c in chowks_data]
         co2_gen=co2*4 if co2>0 else 0;score=round(min(co2/max(co2_gen,0.001)*100,100),1) if co2>0 else 0
         ts_hrs=ts/3600

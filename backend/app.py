@@ -481,9 +481,30 @@ async def heartbeat(request:Request):
         # Store full heartbeat data as JSONB + update device stats
         db_exec("UPDATE istss_devices SET cpu_percent=%s,memory_percent=%s,temperature=%s,disk_percent=%s,status=%s,last_heartbeat=NOW(),heartbeat_data=%s WHERE id=%s",
             (cpu,mem,temp,disk,status_val,json.dumps(data),device_id))
-        # Auto-insert into istss_live_traffic if vehicle_classification present
+        # Auto-insert into istss_live_traffic — prefer per-signal data from traffic_data.signals
         vc=data.get("vehicle_classification")
-        if vc and isinstance(vc,dict):
+        td=data.get("traffic_data",{})
+        signals=td.get("signals",{}) if isinstance(td,dict) else {}
+        if signals and isinstance(signals,dict):
+            # Insert one record per signal (S1,S2,S3,S4) for accurate per-signal dedup
+            for sig_key,sd in signals.items():
+                if not isinstance(sd,dict):continue
+                st=int(sd.get("total",0))
+                if st==0:continue
+                sc=int(sd.get("car",0));sm=int(sd.get("motorcycle",0));sb=int(sd.get("bus",0));stk=int(sd.get("truck",0));sbi=int(sd.get("bicycle",0))
+                sco2=round((sc*2.3+sm*1.0+sb*8.0+stk*6.0)*15/1000,4)
+                sts=st*15;str_eq=round(sco2/21.77,2) if sco2>0 else 0
+                sco2g=(sc*2.3+sm*1.0+sb*8.0+stk*6.0)*60/1000;ssc=round(min(sco2/max(sco2g,0.001)*100,100),1) if sco2>0 else 0
+                svc={"Car":sc,"Motorcycle":sm,"Bus":sb,"Truck":stk,"Bicycle":sbi,"total":st,"signal":sd.get("signal",""),"signal_group":sd.get("signal_group","")}
+                chowk_id=data.get("chowk_id")
+                if not chowk_id:
+                    dev_row=db_exec("SELECT chowk_id FROM istss_devices WHERE id=%s",(device_id,),fetch=True)
+                    chowk_id=dev_row[0]["chowk_id"] if dev_row and dev_row[0].get("chowk_id") else "unknown"
+                try:
+                    db_exec("INSERT INTO istss_live_traffic(id,chowk_id,device_id,total_vehicles,vehicle_classification,estimated_co2_kg,time_saved_seconds,trees_equivalent,net_zero_score,interval_seconds,created_at) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())",
+                        (uid(),chowk_id,device_id,st,json.dumps(svc),sco2,sts,str_eq,ssc,int(data.get("interval_seconds",60))))
+                except Exception as e:print(f"Per-signal traffic insert error: {e}")
+        elif vc and isinstance(vc,dict):
             # Use RPi's total field to avoid signal group double-counting
             total=int(vc.get("total",0))
             if total==0:
